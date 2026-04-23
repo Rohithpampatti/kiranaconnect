@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-const API_URL = 'https://kiranaconnect.onrender.com/api';
+// Use environment variable or fallback to production URL
+const API_URL = import.meta.env.VITE_API_URL || 'https://kiranaconnect.onrender.com/api';
+
+console.log('API_URL:', API_URL); // Check what URL is being used
 
 const api = axios.create({
     baseURL: API_URL,
@@ -26,6 +29,7 @@ api.interceptors.request.use(
 api.interceptors.response.use(
     (response) => response,
     (error) => {
+        console.error('API Error:', error.response?.status, error.response?.data);
         if (error.response?.status === 401) {
             localStorage.removeItem('token');
             localStorage.removeItem('user');

@@ -29,7 +29,7 @@ export const AuthProvider = ({ children }) => {
     
     if (token && savedUser) {
       try {
-        // Verify token with backend
+        // Try to verify token with backend
         const response = await api.get('/auth/me');
         if (response.data) {
           setUser(response.data);
@@ -45,52 +45,119 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   };
 
-  const register = async (userData) => {
+  // New registration with OTP
+  const sendVerificationOTP = async (userData) => {
     try {
       setError(null);
-      const response = await api.post('/auth/register', userData);
+      const response = await api.post('/auth/send-verification-otp', userData);
+      console.log('Send OTP response:', response.data);
+      return { success: true, email: response.data.email };
+    } catch (err) {
+      console.error('Send OTP error:', err);
+      const errorMsg = err.response?.data?.message || 'Failed to send OTP';
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
+    }
+  };
+
+  const verifyOTPAndRegister = async (email, otp) => {
+    try {
+      setError(null);
+      const response = await api.post('/auth/verify-registration', { email, otp });
+      console.log('Verify OTP response:', response.data);
       
       if (response.data.user) {
         localStorage.setItem('user', JSON.stringify(response.data.user));
-        localStorage.setItem('token', 'true');
+        if (response.data.token) {
+          localStorage.setItem('token', response.data.token);
+        } else {
+          localStorage.setItem('token', 'true');
+        }
         setUser(response.data.user);
         return { success: true, user: response.data.user };
       }
-      return { success: false, error: 'Registration failed' };
+      return { success: false, error: 'Verification failed' };
     } catch (err) {
-      const errorMsg = err.response?.data?.message || 'Registration failed';
+      console.error('Verify OTP error:', err);
+      const errorMsg = err.response?.data?.message || 'Verification failed';
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
+    }
+  };
+
+  const resendOTP = async (email) => {
+    try {
+      setError(null);
+      const response = await api.post('/auth/resend-otp', { email });
+      return { success: true, message: response.data.message };
+    } catch (err) {
+      const errorMsg = err.response?.data?.message || 'Failed to resend OTP';
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
+    }
+  };
+
+  // Forgot password with OTP
+  const sendPasswordResetOTP = async (email) => {
+    try {
+      setError(null);
+      const response = await api.post('/auth/send-otp', { email, type: 'password_reset' });
+      return { success: true, email: response.data.email };
+    } catch (err) {
+      const errorMsg = err.response?.data?.message || 'Failed to send OTP';
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
+    }
+  };
+
+  const verifyPasswordResetOTP = async (email, otp) => {
+    try {
+      setError(null);
+      const response = await api.post('/auth/verify-otp', { email, otp, type: 'password_reset' });
+      return { success: true, resetToken: response.data.resetToken };
+    } catch (err) {
+      const errorMsg = err.response?.data?.message || 'Invalid OTP';
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
+    }
+  };
+
+  const resetPassword = async (resetToken, newPassword) => {
+    try {
+      setError(null);
+      const response = await api.post('/auth/reset-password', { resetToken, newPassword });
+      return { success: true, message: response.data.message };
+    } catch (err) {
+      const errorMsg = err.response?.data?.message || 'Failed to reset password';
       setError(errorMsg);
       return { success: false, error: errorMsg };
     }
   };
 
   const login = async (email, password) => {
-  try {
-    setError(null);
-    const response = await api.post('/auth/login', { email, password });
-    console.log('Login API response:', response.data);
-    
-    if (response.data.user) {
-      // Store user data
-      localStorage.setItem('user', JSON.stringify(response.data.user));
-      // Store token from response body
-      if (response.data.token) {
-        localStorage.setItem('token', response.data.token);
-      } else {
-        localStorage.setItem('token', 'true');
+    try {
+      setError(null);
+      const response = await api.post('/auth/login', { email, password });
+      console.log('Login response:', response.data);
+      
+      if (response.data.user) {
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+        if (response.data.token) {
+          localStorage.setItem('token', response.data.token);
+        } else {
+          localStorage.setItem('token', 'true');
+        }
+        setUser(response.data.user);
+        return { success: true, user: response.data.user };
       }
-      setUser(response.data.user);
-      console.log('User set in state:', response.data.user);
-      return { success: true, user: response.data.user };
+      return { success: false, error: 'Login failed' };
+    } catch (err) {
+      console.error('Login error:', err);
+      const errorMsg = err.response?.data?.message || 'Login failed';
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
     }
-    return { success: false, error: 'Login failed' };
-  } catch (err) {
-    console.error('Login API error:', err);
-    const errorMsg = err.response?.data?.message || 'Login failed';
-    setError(errorMsg);
-    return { success: false, error: errorMsg };
-  }
-};
+  };
 
   const logout = async () => {
     try {
@@ -110,8 +177,13 @@ export const AuthProvider = ({ children }) => {
     loading,
     error,
     login,
-    register,
     logout,
+    sendVerificationOTP,
+    verifyOTPAndRegister,
+    resendOTP,
+    sendPasswordResetOTP,
+    verifyPasswordResetOTP,
+    resetPassword,
     isAuthenticated: !!user,
   };
 

@@ -1,192 +1,181 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { ShoppingBag, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { ShoppingBag, Mail, ArrowLeft } from 'lucide-react';
+import { toast } from 'react-toastify';
 
-const Login = () => {
+const ForgotPassword = () => {
+  const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [resetToken, setResetToken] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const { login, user, isAuthenticated } = useAuth();
+  const [timer, setTimer] = useState(0);
+  const { sendPasswordResetOTP, verifyPasswordResetOTP, resetPassword } = useAuth();
+  const navigate = useNavigate();
 
-  // Redirect if already logged in
-  useEffect(() => {
-    console.log('Redirect check - isAuthenticated:', isAuthenticated);
-    console.log('Redirect check - user:', user);
-    
-    if (isAuthenticated && user) {
-      console.log('Redirecting user with role:', user.role);
-      if (user.role === 'admin') {
-        window.location.href = '/admin-panel';
-      } else if (user.role === 'delivery') {
-        window.location.href = '/delivery';
-      } else {
-        window.location.href = '/';
-      }
+  React.useEffect(() => {
+    if (timer > 0) {
+      const interval = setInterval(() => setTimer(t => t - 1), 1000);
+      return () => clearInterval(interval);
     }
-  }, [isAuthenticated, user]);
+  }, [timer]);
 
-  const handleSubmit = async (e) => {
+  const handleSendOTP = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
-    
-    console.log('Attempting login with:', email);
-    
-    try {
-      const result = await login(email, password);
-      console.log('Login result:', result);
-      
-      if (result.success && result.user) {
-        console.log('Login successful, user:', result.user);
-        // Do NOT redirect here - let useEffect handle it
-        // The state update will trigger the useEffect above
-      } else {
-        setError(result.error || 'Login failed. Please check your credentials.');
-        setLoading(false);
-      }
-    } catch (err) {
-      console.error('Login error:', err);
-      setError(err.message || 'Login failed. Please try again.');
-      setLoading(false);
+    const result = await sendPasswordResetOTP(email);
+    if (result.success) {
+      toast.success('OTP sent to your email!');
+      setStep(2);
+      setTimer(60);
+    } else {
+      toast.error(result.error);
     }
+    setLoading(false);
+  };
+
+  const handleVerifyOTP = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    const result = await verifyPasswordResetOTP(email, otp);
+    if (result.success) {
+      setResetToken(result.resetToken);
+      toast.success('OTP verified!');
+      setStep(3);
+    } else {
+      toast.error(result.error);
+    }
+    setLoading(false);
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+    setLoading(true);
+    const result = await resetPassword(resetToken, newPassword);
+    if (result.success) {
+      toast.success('Password reset successfully!');
+      setTimeout(() => navigate('/login'), 2000);
+    } else {
+      toast.error(result.error);
+    }
+    setLoading(false);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8 bg-white rounded-2xl shadow-xl p-8">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center py-12 px-4">
+      <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8">
         <div className="text-center">
-          <div className="flex justify-center">
-            <ShoppingBag className="h-12 w-12 text-emerald-600" />
-          </div>
-          <h2 className="mt-4 text-3xl font-extrabold text-gray-900">
-            Welcome Back
+          <ShoppingBag className="h-12 w-12 text-emerald-600 mx-auto mb-4" />
+          <h2 className="text-3xl font-bold text-gray-800">
+            {step === 1 && 'Forgot Password'}
+            {step === 2 && 'Verify OTP'}
+            {step === 3 && 'New Password'}
           </h2>
-          <p className="mt-2 text-sm text-gray-600">
-            Sign in to your KiranaConnect account
+          <p className="text-gray-500 mt-2">
+            {step === 1 && 'Enter your email to receive OTP'}
+            {step === 2 && `OTP sent to ${email}`}
+            {step === 3 && 'Create your new password'}
           </p>
         </div>
 
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && (
-            <div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
-
-          <div className="space-y-4">
+        {step === 1 && (
+          <form onSubmit={handleSendOTP} className="mt-6 space-y-4">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address
-              </label>
+              <label className="block text-sm font-medium mb-1">Email Address</label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5 text-gray-400" />
-                </div>
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                 <input
-                  id="email"
-                  name="email"
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="appearance-none relative block w-full px-3 py-2 pl-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 focus:z-10 sm:text-sm"
+                  className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500"
                   placeholder="Enter your email"
                 />
               </div>
             </div>
-
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-gray-400" />
-                </div>
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="appearance-none relative block w-full px-3 py-2 pl-10 pr-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 focus:z-10 sm:text-sm"
-                  placeholder="Enter your password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                >
-                  {showPassword ? (
-                    <EyeOff className="h-5 w-5 text-gray-400" />
-                  ) : (
-                    <Eye className="h-5 w-5 text-gray-400" />
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <input
-                id="remember-me"
-                name="remember-me"
-                type="checkbox"
-                className="h-4 w-4 text-emerald-600 focus:ring-emerald-500 border-gray-300 rounded"
-              />
-              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900">
-                Remember me
-              </label>
-            </div>
-
-            <div className="text-sm">
-  <Link to="/forgot-password" className="font-medium text-emerald-600 hover:text-emerald-500">
-    Forgot password?
-  </Link>
-</div>
-
-          <div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? (
-                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-              ) : (
-                'Sign in'
-              )}
+            <button type="submit" disabled={loading} className="w-full bg-emerald-600 text-white py-2 rounded-lg hover:bg-emerald-700">
+              {loading ? 'Sending...' : 'Send OTP'}
             </button>
-          </div>
+          </form>
+        )}
 
-          <div className="text-center">
-            <p className="text-sm text-gray-600">
-              Don't have an account?{' '}
-              <Link to="/register" className="font-medium text-emerald-600 hover:text-emerald-500">
-                Sign up now
-              </Link>
-            </p>
-          </div>
-        </form>
+        {step === 2 && (
+          <form onSubmit={handleVerifyOTP} className="mt-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Enter OTP</label>
+              <input
+                type="text"
+                required
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-center text-2xl tracking-widest"
+                placeholder="000000"
+                maxLength={6}
+              />
+            </div>
+            <button type="submit" disabled={loading} className="w-full bg-emerald-600 text-white py-2 rounded-lg hover:bg-emerald-700">
+              {loading ? 'Verifying...' : 'Verify OTP'}
+            </button>
+            {timer > 0 ? (
+              <p className="text-center text-sm text-gray-500">Resend in {timer}s</p>
+            ) : (
+              <button type="button" onClick={handleSendOTP} className="w-full text-emerald-600 text-sm">
+                Resend OTP
+              </button>
+            )}
+          </form>
+        )}
 
-        <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-          <p className="text-xs text-gray-500 text-center mb-2">Demo Credentials:</p>
-          <p className="text-xs text-gray-400 text-center">
-            Admin: admin@kiranaconnect.com / admin123<br />
-            Delivery: delivery@kiranaconnect.com / delivery123
-          </p>
+        {step === 3 && (
+          <form onSubmit={handleResetPassword} className="mt-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">New Password</label>
+              <input
+                type="password"
+                required
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg"
+                placeholder="Min 6 characters"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Confirm Password</label>
+              <input
+                type="password"
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg"
+                placeholder="Confirm your password"
+              />
+            </div>
+            <button type="submit" disabled={loading} className="w-full bg-emerald-600 text-white py-2 rounded-lg hover:bg-emerald-700">
+              {loading ? 'Resetting...' : 'Reset Password'}
+            </button>
+          </form>
+        )}
+
+        <div className="mt-6 text-center">
+          <Link to="/login" className="text-emerald-600 text-sm flex items-center justify-center gap-1">
+            <ArrowLeft size={16} /> Back to Login
+          </Link>
         </div>
       </div>
     </div>
   );
 };
 
-export default Login;
+export default ForgotPassword;
