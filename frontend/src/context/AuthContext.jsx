@@ -44,33 +44,36 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   };
 
-  // Simple login function
   const login = async (email, password) => {
     try {
       setError(null);
+      console.log('Login API call to:', '/auth/login');
+      
       const response = await api.post('/auth/login', { email, password });
       console.log('Login response:', response.data);
       
       if (response.data.user) {
+        // Store user data
         localStorage.setItem('user', JSON.stringify(response.data.user));
+        // Store token if returned
         if (response.data.token) {
           localStorage.setItem('token', response.data.token);
         } else {
           localStorage.setItem('token', 'true');
         }
         setUser(response.data.user);
+        console.log('User set in state, redirecting...');
         return { success: true, user: response.data.user };
       }
       return { success: false, error: 'Login failed' };
     } catch (err) {
-      console.error('Login error:', err);
+      console.error('Login API error:', err);
       const errorMsg = err.response?.data?.message || 'Login failed';
       setError(errorMsg);
       return { success: false, error: errorMsg };
     }
   };
 
-  // Simple register function
   const register = async (userData) => {
     try {
       setError(null);
