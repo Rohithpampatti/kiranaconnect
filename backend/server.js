@@ -64,6 +64,22 @@ const addressSchema = new mongoose.Schema({
     isDefault: { type: Boolean, default: false }
 });
 
+// Pending User Schema for OTP Verification
+const pendingUserSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true },
+    password: { type: String, required: true },
+    phone: { type: String, default: '' },
+    address: { type: String, default: '' },
+    city: { type: String, default: '' },
+    state: { type: String, default: '' },
+    pincode: { type: String, default: '' },
+    role: { type: String, default: 'user' },
+    createdAt: { type: Date, default: Date.now, expires: 600 } // Auto-delete after 10 minutes
+});
+
+const PendingUser = mongoose.model('PendingUser', pendingUserSchema);
+
 // User Schema
 const userSchema = new mongoose.Schema({
     name: { type: String, required: true },
@@ -76,6 +92,7 @@ const userSchema = new mongoose.Schema({
     pincode: { type: String, default: '' },
     role: { type: String, enum: ['user', 'admin', 'delivery'], default: 'user' },
     addresses: { type: [addressSchema], default: [] },
+    isVerified: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -91,6 +108,17 @@ userSchema.methods.comparePassword = async function (password) {
 };
 
 const User = mongoose.model('User', userSchema);
+
+// OTP Schema
+const otpSchema = new mongoose.Schema({
+    email: { type: String, required: true },
+    otp: { type: String, required: true },
+    type: { type: String, enum: ['password_reset', 'email_verification'], required: true },
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 10 * 60 * 1000) },
+    createdAt: { type: Date, default: Date.now }
+});
+
+const OTP = mongoose.model('OTP', otpSchema);
 
 // Product Schema
 const productSchema = new mongoose.Schema({
@@ -139,7 +167,27 @@ const orderSchema = new mongoose.Schema({
 
 const Order = mongoose.model('Order', orderSchema);
 
-// Auth Middleware
+// Notification Schema
+const notificationSchema = new mongoose.Schema({
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    orderId: String,
+    message: String,
+    status: String,
+    read: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now }
+});
+const Notification = mongoose.model('Notification', notificationSchema);
+
+// Wishlist Schema
+const wishlistSchema = new mongoose.Schema({
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
+    addedAt: { type: Date, default: Date.now }
+});
+
+const Wishlist = mongoose.model('Wishlist', wishlistSchema);
+
+// ============= AUTH MIDDLEWARE =============
 const protect = async (req, res, next) => {
     try {
         const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
@@ -168,31 +216,102 @@ const deliveryOnly = (req, res, next) => {
     next();
 };
 
-// ============= AUTH ROUTES =============
-app.post('/api/auth/register', async (req, res) => {
-    try {
-        const { name, email, password, phone, address, city, state, pincode, role } = req.body;
+// ============= REGISTRATION WITH OTP VERIFICATION =============
 
+// Step 1: Send OTP for verification
+app.post('/api/auth/send-verification-otp', async (req, res) => {
+    try {
+        const { email, name, password, phone, address, city, state, pincode } = req.body;
+
+        // Check if user already exists and verified
         const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(400).json({ message: 'User already exists' });
+        if (existingUser && existingUser.isVerified) {
+            return res.status(400).json({ message: 'User already exists with this email' });
         }
 
-        const user = new User({
+        // Delete any existing pending user
+        await PendingUser.deleteOne({ email });
+        await OTP.deleteMany({ email, type: 'email_verification' });
+
+        // Hash password
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        // Create pending user
+        const pendingUser = new PendingUser({
             name,
             email,
-            password,
+            password: hashedPassword,
             phone: phone || '',
             address: address || '',
             city: city || '',
             state: state || '',
             pincode: pincode || '',
-            role: role || 'user'
+            role: 'user'
+        });
+        await pendingUser.save();
+
+        // Generate OTP
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        await OTP.create({ email, otp, type: 'email_verification' });
+
+        // Send verification email
+        await sendVerificationEmail(email, otp, name);
+
+        res.json({
+            success: true,
+            message: 'Verification OTP sent to your email',
+            email
+        });
+    } catch (error) {
+        console.error('Send verification OTP error:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Step 2: Verify OTP and complete registration
+app.post('/api/auth/verify-registration', async (req, res) => {
+    try {
+        const { email, otp } = req.body;
+
+        // Verify OTP
+        const otpRecord = await OTP.findOne({ email, otp, type: 'email_verification' });
+        if (!otpRecord) {
+            return res.status(400).json({ message: 'Invalid OTP' });
+        }
+        if (otpRecord.expiresAt < new Date()) {
+            await OTP.deleteOne({ _id: otpRecord._id });
+            return res.status(400).json({ message: 'OTP has expired. Please register again.' });
+        }
+
+        // Get pending user
+        const pendingUser = await PendingUser.findOne({ email });
+        if (!pendingUser) {
+            return res.status(400).json({ message: 'Registration session expired. Please register again.' });
+        }
+
+        // Create verified user
+        const user = new User({
+            name: pendingUser.name,
+            email: pendingUser.email,
+            password: pendingUser.password,
+            phone: pendingUser.phone,
+            address: pendingUser.address,
+            city: pendingUser.city,
+            state: pendingUser.state,
+            pincode: pendingUser.pincode,
+            role: pendingUser.role,
+            isVerified: true
         });
         await user.save();
 
+        // Clean up
+        await OTP.deleteOne({ _id: otpRecord._id });
+        await PendingUser.deleteOne({ email });
+
+        // Send welcome email
         await sendWelcomeEmail(user);
 
+        // Generate token
         const token = jwt.sign(
             { id: user._id, role: user.role },
             process.env.JWT_SECRET || 'secret123',
@@ -208,76 +327,44 @@ app.post('/api/auth/register', async (req, res) => {
         });
 
         res.json({
+            success: true,
             message: 'Registration successful',
             user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone, address: user.address },
             token: token
         });
     } catch (error) {
-        console.error('Register error:', error);
+        console.error('Verify registration error:', error);
         res.status(500).json({ message: error.message });
     }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+// Resend OTP
+app.post('/api/auth/resend-otp', async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email } = req.body;
 
-        const user = await User.findOne({ email });
-        if (!user || !(await user.comparePassword(password))) {
-            return res.status(401).json({ message: 'Invalid credentials' });
+        const pendingUser = await PendingUser.findOne({ email });
+        if (!pendingUser) {
+            return res.status(400).json({ message: 'No pending registration found' });
         }
 
-        const token = jwt.sign(
-            { id: user._id, role: user.role },
-            process.env.JWT_SECRET || 'secret123',
-            { expiresIn: '30d' }
-        );
+        await OTP.deleteMany({ email, type: 'email_verification' });
 
-        res.cookie('token', token, {
-            httpOnly: true,
-            maxAge: 30 * 24 * 60 * 60 * 1000,
-            sameSite: 'none',
-            secure: true,
-            domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
-        });
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        await OTP.create({ email, otp, type: 'email_verification' });
 
-        res.json({
-            message: 'Login successful',
-            user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone, address: user.address },
-            token: token
-        });
+        await sendVerificationEmail(email, otp, pendingUser.name);
+
+        res.json({ success: true, message: 'OTP resent successfully' });
     } catch (error) {
-        console.error('Login error:', error);
+        console.error('Resend OTP error:', error);
         res.status(500).json({ message: error.message });
     }
 });
 
-app.post('/api/auth/logout', (req, res) => {
-    res.clearCookie('token');
-    res.json({ message: 'Logged out' });
-});
+// ============= FORGOT PASSWORD OTP ROUTES =============
 
-app.get('/api/auth/me', protect, async (req, res) => {
-    try {
-        const user = await User.findById(req.user.id).select('-password');
-        res.json(user);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-
-// ============= OTP ROUTES =============
-const otpSchema = new mongoose.Schema({
-    email: { type: String, required: true },
-    otp: { type: String, required: true },
-    type: { type: String, enum: ['password_reset', 'email_verification'], required: true },
-    expiresAt: { type: Date, default: () => new Date(Date.now() + 10 * 60 * 1000) },
-    createdAt: { type: Date, default: Date.now }
-});
-
-const OTP = mongoose.model('OTP', otpSchema);
-
-// Send OTP
+// Send OTP for password reset
 app.post('/api/auth/send-otp', async (req, res) => {
     try {
         const { email, type } = req.body;
@@ -300,7 +387,7 @@ app.post('/api/auth/send-otp', async (req, res) => {
     }
 });
 
-// Verify OTP
+// Verify OTP for password reset
 app.post('/api/auth/verify-otp', async (req, res) => {
     try {
         const { email, otp, type } = req.body;
@@ -352,7 +439,115 @@ app.post('/api/auth/reset-password', async (req, res) => {
     }
 });
 
-// Update profile
+// ============= REGULAR REGISTER (without OTP - for admin) =============
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { name, email, password, phone, address, city, state, pincode, role } = req.body;
+
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(400).json({ message: 'User already exists' });
+        }
+
+        const user = new User({
+            name,
+            email,
+            password,
+            phone: phone || '',
+            address: address || '',
+            city: city || '',
+            state: state || '',
+            pincode: pincode || '',
+            role: role || 'user',
+            isVerified: true
+        });
+        await user.save();
+
+        await sendWelcomeEmail(user);
+
+        const token = jwt.sign(
+            { id: user._id, role: user.role },
+            process.env.JWT_SECRET || 'secret123',
+            { expiresIn: '30d' }
+        );
+
+        res.cookie('token', token, {
+            httpOnly: true,
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+            sameSite: 'none',
+            secure: true,
+            domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
+        });
+
+        res.json({
+            message: 'Registration successful',
+            user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone, address: user.address },
+            token: token
+        });
+    } catch (error) {
+        console.error('Register error:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// ============= LOGIN ROUTE =============
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
+
+        if (!user.isVerified) {
+            return res.status(401).json({ message: 'Please verify your email first. Check your inbox.' });
+        }
+
+        if (!(await user.comparePassword(password))) {
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
+
+        const token = jwt.sign(
+            { id: user._id, role: user.role },
+            process.env.JWT_SECRET || 'secret123',
+            { expiresIn: '30d' }
+        );
+
+        res.cookie('token', token, {
+            httpOnly: true,
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+            sameSite: 'none',
+            secure: true,
+            domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
+        });
+
+        res.json({
+            message: 'Login successful',
+            user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone, address: user.address },
+            token: token
+        });
+    } catch (error) {
+        console.error('Login error:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+    res.clearCookie('token');
+    res.json({ message: 'Logged out' });
+});
+
+app.get('/api/auth/me', protect, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id).select('-password');
+        res.json(user);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// ============= PROFILE ROUTES =============
 app.put('/api/auth/update', protect, async (req, res) => {
     try {
         const { name, phone, address, city, state, pincode } = req.body;
@@ -375,7 +570,6 @@ app.put('/api/auth/update', protect, async (req, res) => {
     }
 });
 
-// Change password
 app.post('/api/auth/change-password', protect, async (req, res) => {
     try {
         const { currentPassword, newPassword } = req.body;
@@ -398,7 +592,7 @@ app.post('/api/auth/change-password', protect, async (req, res) => {
     }
 });
 
-// Address routes
+// ============= ADDRESS ROUTES =============
 app.get('/api/auth/addresses', protect, async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
@@ -517,6 +711,11 @@ app.post('/api/orders', protect, async (req, res) => {
         });
 
         await order.save();
+
+        // Send order confirmation email
+        const user = await User.findById(req.user.id);
+        await sendOrderConfirmationEmail(user, order._id, items, totalAmount, deliveryAddress, deliveryDate, deliveryTimeSlot);
+
         res.status(201).json(order);
     } catch (error) {
         console.error('Order creation error:', error);
@@ -571,15 +770,38 @@ app.put('/api/orders/:id/status', protect, async (req, res) => {
 
         await order.save();
 
-        if (order.user && order.user.email && (status === 'confirmed' || status === 'preparing' || status === 'out-for-delivery' || status === 'delivered')) {
-            await sendOrderStatusEmail(order.user, order._id, status, order.totalAmount);
+        if (order.user && order.user.email) {
+            if (status === 'delivered') {
+                await sendOrderDeliveredEmail(order.user, order._id, order.totalAmount, new Date().toLocaleDateString());
+            } else if (status === 'confirmed' || status === 'preparing' || status === 'out-for-delivery') {
+                await sendOrderStatusEmail(order.user, order._id, status, order.totalAmount);
+            }
         }
+
+        // Create notification
+        const notification = new Notification({
+            user: order.user,
+            orderId: order._id,
+            message: getStatusMessage(status, order._id),
+            status
+        });
+        await notification.save();
 
         res.json(order);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
 });
+
+function getStatusMessage(status, orderId) {
+    const messages = {
+        'confirmed': `✅ Order #${orderId.toString().slice(-8)} has been confirmed!`,
+        'preparing': `👨‍🍳 Your order #${orderId.toString().slice(-8)} is being prepared!`,
+        'out-for-delivery': `🚚 Your order #${orderId.toString().slice(-8)} is out for delivery!`,
+        'delivered': `🎉 Your order #${orderId.toString().slice(-8)} has been delivered! Enjoy!`
+    };
+    return messages[status] || `Order #${orderId.toString().slice(-8)} status updated to ${status}`;
+}
 
 // Track order location
 app.get('/api/orders/:orderId/track', protect, async (req, res) => {
@@ -601,6 +823,24 @@ app.get('/api/orders/:orderId/track', protect, async (req, res) => {
         } else {
             res.json({ message: 'Tracking not available yet', status: order.status });
         }
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Update delivery location
+app.post('/api/delivery/update-location', protect, deliveryOnly, async (req, res) => {
+    try {
+        const { orderId, lat, lng } = req.body;
+
+        deliveryLocations.set(orderId, {
+            lat,
+            lng,
+            updatedAt: new Date(),
+            deliveryPartner: req.user.id
+        });
+
+        res.json({ success: true, message: 'Location updated' });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -745,17 +985,7 @@ app.get('/api/admin/stats', protect, adminOnly, async (req, res) => {
     }
 });
 
-// ============= NOTIFICATION SCHEMA =============
-const notificationSchema = new mongoose.Schema({
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    orderId: String,
-    message: String,
-    status: String,
-    read: { type: Boolean, default: false },
-    createdAt: { type: Date, default: Date.now }
-});
-const Notification = mongoose.model('Notification', notificationSchema);
-
+// ============= NOTIFICATION ROUTES =============
 app.get('/api/notifications', protect, async (req, res) => {
     try {
         const notifications = await Notification.find({ user: req.user.id }).sort('-createdAt').limit(30);
@@ -775,14 +1005,6 @@ app.put('/api/notifications/:id/read', protect, async (req, res) => {
 });
 
 // ============= WISHLIST ROUTES =============
-const wishlistSchema = new mongoose.Schema({
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
-    addedAt: { type: Date, default: Date.now }
-});
-
-const Wishlist = mongoose.model('Wishlist', wishlistSchema);
-
 app.get('/api/wishlist', protect, async (req, res) => {
     try {
         const wishlist = await Wishlist.find({ user: req.user.id }).populate('productId');
