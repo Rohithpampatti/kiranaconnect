@@ -1,0 +1,33 @@
+
+---
+
+## Step 5: Add, Commit, and Push to GitHub
+
+Run these commands in **PowerShell**:
+
+```bash
+cd G:\online-kirana-store
+
+# Add all files
+git add .
+
+# Check status (optional)
+git status
+
+# Commit with message
+git commit -m "Initial commit: KiranaConnect - Complete E-commerce Platform
+
+- User authentication with JWT
+- Product management with CRUD
+- Shopping cart and wishlist
+- Order management with live tracking
+- Admin panel and delivery dashboard
+- PWA support and email notifications
+- UPI QR payment integration"
+
+# Add remote repository (Replace YOUR_USERNAME with your GitHub username)
+git remote add origin https://github.com/YOUR_USERNAME/kiranaconnect.git
+
+# Push to GitHub
+git branch -M main
+git push -u origin main
