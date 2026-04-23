@@ -18,10 +18,10 @@ const InstallPrompt = () => {
 
   const handleInstall = () => {
     if (deferredPrompt) {
-      deferredPrompt.prompt();
+      deferredPrompt.prompt();  // This shows the banner
       deferredPrompt.userChoice.then((choiceResult: any) => {
         if (choiceResult.outcome === 'accepted') {
-          console.log('User accepted the install prompt');
+          console.log('User accepted install');
         }
         setDeferredPrompt(null);
         setShowPrompt(false);

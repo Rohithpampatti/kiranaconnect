@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { ShoppingBag, Mail, Lock, Eye, EyeOff } from 'lucide-react';
@@ -9,47 +9,53 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const { login, user } = useAuth();
+  const { login, user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
   // Redirect if already logged in
-  React.useEffect(() => {
-    if (user) {
+  useEffect(() => {
+    if (isAuthenticated && user) {
       console.log('User already logged in:', user);
       if (user.role === 'admin') {
-        navigate('/admin');
+        navigate('/admin-panel');
       } else if (user.role === 'delivery') {
         navigate('/delivery');
       } else {
         navigate('/');
       }
     }
-  }, [user, navigate]);
+  }, [isAuthenticated, user, navigate]);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     
     console.log('Attempting login with:', email);
     
-    const result = await login(email, password);
-    console.log('Login result:', result);
-    
-    if (result.success) {
-      console.log('Login successful, user:', result.user);
-      // Redirect based on role
-      if (result.user.role === 'admin') {
-        navigate('/admin');
-      } else if (result.user.role === 'delivery') {
-        navigate('/delivery');
+    try {
+      const result = await login(email, password);
+      console.log('Login result:', result);
+      
+      if (result.success && result.user) {
+        console.log('Login successful, user:', result.user);
+        // Redirect based on role
+        if (result.user.role === 'admin') {
+          navigate('/admin-panel');
+        } else if (result.user.role === 'delivery') {
+          navigate('/delivery');
+        } else {
+          navigate('/');
+        }
       } else {
-        navigate('/');
+        setError(result.error || 'Login failed. Please check your credentials.');
       }
-    } else {
-      setError(result.error || 'Login failed. Please check your credentials.');
+    } catch (err: any) {
+      console.error('Login error:', err);
+      setError(err.message || 'Login failed. Please try again.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -179,8 +185,8 @@ const Login = () => {
         <div className="mt-6 p-4 bg-gray-50 rounded-lg">
           <p className="text-xs text-gray-500 text-center mb-2">Demo Credentials:</p>
           <p className="text-xs text-gray-400 text-center">
-            Email: user@example.com<br />
-            Password: 123456
+            Admin: admin@kiranaconnect.com / admin123<br />
+            Delivery: delivery@kiranaconnect.com / delivery123
           </p>
         </div>
       </div>
