@@ -5,7 +5,14 @@ import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { sendOrderStatusEmail, sendWelcomeEmail, sendOTPEmail } from './services/emailService.js';
+import {
+    sendOrderStatusEmail,
+    sendWelcomeEmail,
+    sendOTPEmail,
+    sendVerificationEmail,
+    sendOrderConfirmationEmail,
+    sendOrderDeliveredEmail
+} from './services/emailService.js';
 
 dotenv.config();
 
