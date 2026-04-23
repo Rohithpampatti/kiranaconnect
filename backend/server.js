@@ -75,7 +75,7 @@ const pendingUserSchema = new mongoose.Schema({
     state: { type: String, default: '' },
     pincode: { type: String, default: '' },
     role: { type: String, default: 'user' },
-    createdAt: { type: Date, default: Date.now, expires: 600 } // Auto-delete after 10 minutes
+    createdAt: { type: Date, default: Date.now, expires: 600 }
 });
 
 const PendingUser = mongoose.model('PendingUser', pendingUserSchema);
@@ -85,14 +85,15 @@ const userSchema = new mongoose.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    phone: { type: String, default: '' },
+    phone: { type: String, required: true, unique: true },
     address: { type: String, default: '' },
     city: { type: String, default: '' },
     state: { type: String, default: '' },
     pincode: { type: String, default: '' },
     role: { type: String, enum: ['user', 'admin', 'delivery'], default: 'user' },
     addresses: { type: [addressSchema], default: [] },
-    isVerified: { type: Boolean, default: false },
+    isEmailVerified: { type: Boolean, default: false },
+    isPhoneVerified: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -111,9 +112,10 @@ const User = mongoose.model('User', userSchema);
 
 // OTP Schema
 const otpSchema = new mongoose.Schema({
-    email: { type: String, required: true },
+    email: { type: String },
+    phone: { type: String },
     otp: { type: String, required: true },
-    type: { type: String, enum: ['password_reset', 'email_verification'], required: true },
+    type: { type: String, enum: ['password_reset', 'email_verification', 'phone_verification'], required: true },
     expiresAt: { type: Date, default: () => new Date(Date.now() + 10 * 60 * 1000) },
     createdAt: { type: Date, default: Date.now }
 });
@@ -218,30 +220,25 @@ const deliveryOnly = (req, res, next) => {
 
 // ============= REGISTRATION WITH OTP VERIFICATION =============
 
-// Step 1: Send OTP for verification
+// Step 1: Send Email OTP
 app.post('/api/auth/send-verification-otp', async (req, res) => {
     try {
-        const { email, name, password, phone, address, city, state, pincode } = req.body;
+        const { email, name, password, address, city, state, pincode } = req.body;
 
-        // Check if user already exists and verified
         const existingUser = await User.findOne({ email });
-        if (existingUser && existingUser.isVerified) {
-            return res.status(400).json({ message: 'User already exists with this email' });
+        if (existingUser && existingUser.isEmailVerified) {
+            return res.status(400).json({ message: 'Email already registered' });
         }
 
-        // Delete any existing pending user
         await PendingUser.deleteOne({ email });
         await OTP.deleteMany({ email, type: 'email_verification' });
 
-        // Hash password
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // Create pending user
         const pendingUser = new PendingUser({
             name,
             email,
             password: hashedPassword,
-            phone: phone || '',
             address: address || '',
             city: city || '',
             state: state || '',
@@ -250,68 +247,119 @@ app.post('/api/auth/send-verification-otp', async (req, res) => {
         });
         await pendingUser.save();
 
-        // Generate OTP
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
         await OTP.create({ email, otp, type: 'email_verification' });
 
-        // Send verification email
         await sendVerificationEmail(email, otp, name);
 
-        res.json({
-            success: true,
-            message: 'Verification OTP sent to your email',
-            email
-        });
+        res.json({ success: true, message: 'Email OTP sent successfully', email });
     } catch (error) {
-        console.error('Send verification OTP error:', error);
+        console.error('Send email OTP error:', error);
         res.status(500).json({ message: error.message });
     }
 });
 
-// Step 2: Verify OTP and complete registration
+// Step 2: Verify Email OTP
 app.post('/api/auth/verify-registration', async (req, res) => {
     try {
         const { email, otp } = req.body;
 
-        // Verify OTP
         const otpRecord = await OTP.findOne({ email, otp, type: 'email_verification' });
         if (!otpRecord) {
             return res.status(400).json({ message: 'Invalid OTP' });
         }
         if (otpRecord.expiresAt < new Date()) {
             await OTP.deleteOne({ _id: otpRecord._id });
-            return res.status(400).json({ message: 'OTP has expired. Please register again.' });
+            return res.status(400).json({ message: 'OTP has expired' });
         }
 
-        // Get pending user
+        await OTP.deleteOne({ _id: otpRecord._id });
+
         const pendingUser = await PendingUser.findOne({ email });
         if (!pendingUser) {
-            return res.status(400).json({ message: 'Registration session expired. Please register again.' });
+            return res.status(400).json({ message: 'Registration session expired' });
         }
 
-        // Create verified user
+        // Update pending user to mark email verified
+        pendingUser.isEmailVerified = true;
+        await pendingUser.save();
+
+        res.json({ success: true, message: 'Email verified. Please enter phone number.' });
+    } catch (error) {
+        console.error('Verify email error:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Step 3: Send Phone OTP
+app.post('/api/auth/send-phone-otp', async (req, res) => {
+    try {
+        const { phone, email } = req.body;
+
+        const existingUser = await User.findOne({ phone });
+        if (existingUser && existingUser.isPhoneVerified) {
+            return res.status(400).json({ message: 'Phone number already registered' });
+        }
+
+        const pendingUser = await PendingUser.findOne({ email });
+        if (!pendingUser) {
+            return res.status(400).json({ message: 'Please verify email first' });
+        }
+
+        await OTP.deleteMany({ phone, type: 'phone_verification' });
+
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        await OTP.create({ phone, otp, type: 'phone_verification' });
+
+        console.log(`📱 Phone OTP for ${phone}: ${otp}`);
+
+        res.json({ success: true, message: 'Phone OTP sent successfully' });
+    } catch (error) {
+        console.error('Send phone OTP error:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Step 4: Verify Phone OTP and Complete Registration
+app.post('/api/auth/verify-phone-otp', async (req, res) => {
+    try {
+        const { email, phone, otp } = req.body;
+
+        const otpRecord = await OTP.findOne({ phone, otp, type: 'phone_verification' });
+        if (!otpRecord) {
+            return res.status(400).json({ message: 'Invalid OTP' });
+        }
+        if (otpRecord.expiresAt < new Date()) {
+            await OTP.deleteOne({ _id: otpRecord._id });
+            return res.status(400).json({ message: 'OTP has expired' });
+        }
+
+        await OTP.deleteOne({ _id: otpRecord._id });
+
+        const pendingUser = await PendingUser.findOne({ email });
+        if (!pendingUser) {
+            return res.status(400).json({ message: 'Registration session expired' });
+        }
+
         const user = new User({
             name: pendingUser.name,
             email: pendingUser.email,
             password: pendingUser.password,
-            phone: pendingUser.phone,
+            phone: phone,
             address: pendingUser.address,
             city: pendingUser.city,
             state: pendingUser.state,
             pincode: pendingUser.pincode,
             role: pendingUser.role,
-            isVerified: true
+            isEmailVerified: true,
+            isPhoneVerified: true
         });
         await user.save();
 
-        // Clean up
-        await OTP.deleteOne({ _id: otpRecord._id });
         await PendingUser.deleteOne({ email });
 
-        // Send welcome email
         await sendWelcomeEmail(user);
 
-        // Generate token
         const token = jwt.sign(
             { id: user._id, role: user.role },
             process.env.JWT_SECRET || 'secret123',
@@ -328,17 +376,17 @@ app.post('/api/auth/verify-registration', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'Registration successful',
-            user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone, address: user.address },
+            message: 'Registration completed successfully',
+            user: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role },
             token: token
         });
     } catch (error) {
-        console.error('Verify registration error:', error);
+        console.error('Complete registration error:', error);
         res.status(500).json({ message: error.message });
     }
 });
 
-// Resend OTP
+// Resend Email OTP
 app.post('/api/auth/resend-otp', async (req, res) => {
     try {
         const { email } = req.body;
@@ -364,7 +412,6 @@ app.post('/api/auth/resend-otp', async (req, res) => {
 
 // ============= FORGOT PASSWORD OTP ROUTES =============
 
-// Send OTP for password reset
 app.post('/api/auth/send-otp', async (req, res) => {
     try {
         const { email, type } = req.body;
@@ -387,7 +434,6 @@ app.post('/api/auth/send-otp', async (req, res) => {
     }
 });
 
-// Verify OTP for password reset
 app.post('/api/auth/verify-otp', async (req, res) => {
     try {
         const { email, otp, type } = req.body;
@@ -415,7 +461,6 @@ app.post('/api/auth/verify-otp', async (req, res) => {
     }
 });
 
-// Reset password
 app.post('/api/auth/reset-password', async (req, res) => {
     try {
         const { resetToken, newPassword } = req.body;
@@ -439,7 +484,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     }
 });
 
-// ============= REGULAR REGISTER (without OTP - for admin) =============
+// ============= REGULAR REGISTER (for admin) =============
 app.post('/api/auth/register', async (req, res) => {
     try {
         const { name, email, password, phone, address, city, state, pincode, role } = req.body;
@@ -459,7 +504,8 @@ app.post('/api/auth/register', async (req, res) => {
             state: state || '',
             pincode: pincode || '',
             role: role || 'user',
-            isVerified: true
+            isEmailVerified: true,
+            isPhoneVerified: true
         });
         await user.save();
 
@@ -500,8 +546,8 @@ app.post('/api/auth/login', async (req, res) => {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        if (!user.isVerified) {
-            return res.status(401).json({ message: 'Please verify your email first. Check your inbox.' });
+        if (!user.isEmailVerified) {
+            return res.status(401).json({ message: 'Please verify your email first' });
         }
 
         if (!(await user.comparePassword(password))) {
@@ -712,7 +758,6 @@ app.post('/api/orders', protect, async (req, res) => {
 
         await order.save();
 
-        // Send order confirmation email
         const user = await User.findById(req.user.id);
         await sendOrderConfirmationEmail(user, order._id, items, totalAmount, deliveryAddress, deliveryDate, deliveryTimeSlot);
 
@@ -778,7 +823,6 @@ app.put('/api/orders/:id/status', protect, async (req, res) => {
             }
         }
 
-        // Create notification
         const notification = new Notification({
             user: order.user,
             orderId: order._id,
@@ -803,7 +847,6 @@ function getStatusMessage(status, orderId) {
     return messages[status] || `Order #${orderId.toString().slice(-8)} status updated to ${status}`;
 }
 
-// Track order location
 app.get('/api/orders/:orderId/track', protect, async (req, res) => {
     try {
         const { orderId } = req.params;
@@ -828,7 +871,6 @@ app.get('/api/orders/:orderId/track', protect, async (req, res) => {
     }
 });
 
-// Update delivery location
 app.post('/api/delivery/update-location', protect, deliveryOnly, async (req, res) => {
     try {
         const { orderId, lat, lng } = req.body;

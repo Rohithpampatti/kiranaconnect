@@ -27,6 +27,7 @@ import PaymentQR from './src/pages/PaymentQR';
 import OrderConfirmation from './src/pages/OrderConfirmation';
 import TrackOrder from './src/pages/TrackOrder';
 import ForgotPassword from './src/pages/ForgotPassword';
+import RegisterWithOTP from './src/pages/RegisterWithOTP';
 
 function App() {
   return (
@@ -55,6 +56,7 @@ function App() {
                   <Route path="/order-confirmation" element={<OrderConfirmation />} />
                   <Route path="/track-order/:orderId" element={<TrackOrder />} />
                   <Route path="/forgot-password" element={<ForgotPassword />} />
+                  <Route path="/register" element={<RegisterWithOTP />} />
                 </Routes>
               </main>
               <Footer />
