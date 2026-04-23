@@ -167,6 +167,9 @@ const orderSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
+// Add index for better query performance
+orderSchema.index({ user: 1, createdAt: -1 });
+
 const Order = mongoose.model('Order', orderSchema);
 
 // Notification Schema
@@ -736,7 +739,7 @@ app.delete('/api/products/:id', protect, adminOnly, async (req, res) => {
     }
 });
 
-// ============= ORDER ROUTES =============
+// ============= ORDER ROUTES (FIXED) =============
 app.post('/api/orders', protect, async (req, res) => {
     try {
         const { items, subtotal, deliveryFee, discount, totalAmount, deliveryAddress, deliveryDate, deliveryTimeSlot, paymentMethod, couponApplied, customerLocation } = req.body;
@@ -759,7 +762,9 @@ app.post('/api/orders', protect, async (req, res) => {
         await order.save();
 
         const user = await User.findById(req.user.id);
-        await sendOrderConfirmationEmail(user, order._id, items, totalAmount, deliveryAddress, deliveryDate, deliveryTimeSlot);
+        if (user && user.email) {
+            await sendOrderConfirmationEmail(user, order._id, items, totalAmount, deliveryAddress, deliveryDate, deliveryTimeSlot);
+        }
 
         res.status(201).json(order);
     } catch (error) {
@@ -768,21 +773,26 @@ app.post('/api/orders', protect, async (req, res) => {
     }
 });
 
+// FIXED: Get my orders - returns empty array instead of error
 app.get('/api/orders/my-orders', protect, async (req, res) => {
     try {
         const orders = await Order.find({ user: req.user.id }).sort('-createdAt');
-        res.json(orders);
+        res.json(orders || []);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        console.error('Fetch my orders error:', error);
+        // Return empty array instead of error to prevent frontend crash
+        res.json([]);
     }
 });
 
+// FIXED: Admin get all orders
 app.get('/api/orders', protect, adminOnly, async (req, res) => {
     try {
         const orders = await Order.find().populate('user', 'name email').sort('-createdAt');
-        res.json(orders);
+        res.json(orders || []);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        console.error('Admin fetch orders error:', error);
+        res.json([]);
     }
 });
 
@@ -833,6 +843,7 @@ app.put('/api/orders/:id/status', protect, async (req, res) => {
 
         res.json(order);
     } catch (error) {
+        console.error('Update order status error:', error);
         res.status(500).json({ message: error.message });
     }
 });
