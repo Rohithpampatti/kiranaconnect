@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { ShoppingBag, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 
@@ -10,11 +10,12 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login, user, isAuthenticated } = useAuth();
-  const navigate = useNavigate();
 
   // Redirect if already logged in
   useEffect(() => {
-    console.log('Redirect check - isAuthenticated:', isAuthenticated, 'user:', user);
+    console.log('Redirect check - isAuthenticated:', isAuthenticated);
+    console.log('Redirect check - user:', user);
+    
     if (isAuthenticated && user) {
       console.log('Redirecting user with role:', user.role);
       if (user.role === 'admin') {
@@ -40,21 +41,15 @@ const Login = () => {
       
       if (result.success && result.user) {
         console.log('Login successful, user:', result.user);
-        // Use window.location for immediate redirect
-        if (result.user.role === 'admin') {
-          window.location.href = '/admin-panel';
-        } else if (result.user.role === 'delivery') {
-          window.location.href = '/delivery';
-        } else {
-          window.location.href = '/';
-        }
+        // Do NOT redirect here - let useEffect handle it
+        // The state update will trigger the useEffect above
       } else {
         setError(result.error || 'Login failed. Please check your credentials.');
+        setLoading(false);
       }
     } catch (err) {
       console.error('Login error:', err);
       setError(err.message || 'Login failed. Please try again.');
-    } finally {
       setLoading(false);
     }
   };

@@ -1,11 +1,11 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import api from '../services/api';
 
-const AuthContext = createContext(undefined);
+const AuthContext = createContext(null);
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
@@ -24,8 +24,23 @@ export const AuthProvider = ({ children }) => {
     const token = localStorage.getItem('token');
     const savedUser = localStorage.getItem('user');
     
+    console.log('checkAuth - token:', token);
+    console.log('checkAuth - savedUser:', savedUser);
+    
     if (token && savedUser) {
-      setUser(JSON.parse(savedUser));
+      try {
+        // Verify token with backend
+        const response = await api.get('/auth/me');
+        if (response.data) {
+          setUser(response.data);
+          localStorage.setItem('user', JSON.stringify(response.data));
+          console.log('User verified:', response.data);
+        }
+      } catch (err) {
+        console.error('Token verification failed:', err);
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+      }
     }
     setLoading(false);
   };
@@ -49,21 +64,28 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
- const login = async (email, password) => {
-  try {
-    const response = await api.post('/auth/login', { email, password });
-    
-    if (response.data.user) {
-      localStorage.setItem('user', JSON.stringify(response.data.user));
-      localStorage.setItem('token', 'true');
-      setUser(response.data.user);  // This triggers the useEffect
-      return { success: true, user: response.data.user };
+  const login = async (email, password) => {
+    try {
+      setError(null);
+      const response = await api.post('/auth/login', { email, password });
+      console.log('Login API response:', response.data);
+      
+      if (response.data.user) {
+        // Store user data
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+        localStorage.setItem('token', 'true');
+        setUser(response.data.user);
+        console.log('User set in state:', response.data.user);
+        return { success: true, user: response.data.user };
+      }
+      return { success: false, error: 'Login failed' };
+    } catch (err) {
+      console.error('Login API error:', err);
+      const errorMsg = err.response?.data?.message || 'Login failed';
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
     }
-    return { success: false, error: 'Login failed' };
-  } catch (err) {
-    return { success: false, error: err.response?.data?.message || 'Login failed' };
-  }
-};
+  };
 
   const logout = async () => {
     try {
