@@ -12,10 +12,11 @@ const Login = () => {
   const { login, user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
-  // Redirect if already logged in
+  // Redirect if already logged in - THIS WILL TRIGGER AFTER STATE UPDATE
   useEffect(() => {
+    console.log('Redirect check - isAuthenticated:', isAuthenticated, 'user:', user);
     if (isAuthenticated && user) {
-      console.log('User already logged in:', user);
+      console.log('Redirecting user with role:', user.role);
       if (user.role === 'admin') {
         navigate('/admin-panel');
       } else if (user.role === 'delivery') {
@@ -39,14 +40,8 @@ const Login = () => {
       
       if (result.success && result.user) {
         console.log('Login successful, user:', result.user);
-        // Redirect based on role
-        if (result.user.role === 'admin') {
-          navigate('/admin-panel');
-        } else if (result.user.role === 'delivery') {
-          navigate('/delivery');
-        } else {
-          navigate('/');
-        }
+        // DON'T navigate here - let useEffect handle it
+        // The state update will trigger the useEffect above
       } else {
         setError(result.error || 'Login failed. Please check your credentials.');
       }
