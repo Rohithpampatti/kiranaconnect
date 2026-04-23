@@ -1,10 +1,18 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { ShoppingBag, User, Mail, Lock, Eye, EyeOff, Phone, MapPin, CheckCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
 
 const RegisterWithOTP = () => {
+  const { 
+    sendEmailOTP: sendEmailOTPAPI, 
+    verifyEmailOTP: verifyEmailOTPAPI,
+    sendPhoneOTP: sendPhoneOTPAPI,
+    verifyPhoneOTP: verifyPhoneOTPAPI,
+    resendEmailOTP: resendEmailOTPAPI
+  } = useAuth();
+  
   const [step, setStep] = useState(1); // 1: form, 2: email otp, 3: phone otp
   const [formData, setFormData] = useState({
     name: '',
@@ -42,119 +50,121 @@ const RegisterWithOTP = () => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const sendEmailOTP = async () => {
+  const handleSendEmailOTP = async () => {
     if (!formData.email) {
       toast.error('Please enter email');
       return;
     }
+    if (!formData.name) {
+      toast.error('Please enter name');
+      return;
+    }
+    if (!formData.password) {
+      toast.error('Please enter password');
+      return;
+    }
     setLoading(true);
-    try {
-      await api.post('/auth/send-email-otp', { 
-        email: formData.email, 
-        name: formData.name 
-      });
+    const result = await sendEmailOTPAPI({ 
+      email: formData.email, 
+      name: formData.name,
+      password: formData.password,
+      address: formData.address,
+      city: formData.city,
+      state: formData.state,
+      pincode: formData.pincode
+    });
+    if (result.success) {
       toast.success('OTP sent to your email!');
       setStep(2);
       setEmailTimer(60);
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to send OTP');
-    } finally {
-      setLoading(false);
+    } else {
+      toast.error(result.error);
     }
+    setLoading(false);
   };
 
-  const verifyEmailOTP = async () => {
+  const handleVerifyEmailOTP = async () => {
+    if (!emailOtp || emailOtp.length !== 6) {
+      toast.error('Please enter valid 6-digit OTP');
+      return;
+    }
     setLoading(true);
-    try {
-      await api.post('/auth/verify-email-otp', {
-        email: formData.email,
-        otp: emailOtp,
-        name: formData.name,
-        password: formData.password,
-        address: formData.address,
-        city: formData.city,
-        state: formData.state,
-        pincode: formData.pincode
-      });
+    const result = await verifyEmailOTPAPI(formData.email, emailOtp);
+    if (result.success) {
       toast.success('Email verified! Sending OTP to phone...');
-      await sendPhoneOTP();
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Verification failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const sendPhoneOTP = async () => {
-    try {
-      await api.post('/auth/send-phone-otp', { 
-        phone: formData.phone,
-        email: formData.email
-      });
-      toast.success('OTP sent to your phone!');
       setStep(3);
+      await handleSendPhoneOTP();
+    } else {
+      toast.error(result.error);
+    }
+    setLoading(false);
+  };
+
+  const handleSendPhoneOTP = async () => {
+    const result = await sendPhoneOTPAPI(formData.phone, formData.email);
+    if (result.success) {
+      toast.success('OTP sent to your phone!');
       setPhoneTimer(60);
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to send phone OTP');
+    } else {
+      toast.error(result.error);
     }
   };
 
-  const verifyPhoneOTP = async () => {
+  const handleVerifyPhoneOTP = async () => {
+    if (!phoneOtp || phoneOtp.length !== 6) {
+      toast.error('Please enter valid 6-digit OTP');
+      return;
+    }
     setLoading(true);
-    try {
-      await api.post('/auth/verify-phone-otp', {
-        phone: formData.phone,
-        otp: phoneOtp
-      });
-      
-      // Complete registration
-      const response = await api.post('/auth/complete-registration', {
-        email: formData.email,
-        phone: formData.phone
-      });
-      
-      if (response.data.success) {
-        localStorage.setItem('user', JSON.stringify(response.data.user));
-        localStorage.setItem('token', response.data.token);
-        toast.success('Registration successful!');
-        navigate('/');
-      }
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Verification failed');
-    } finally {
-      setLoading(false);
+    const result = await verifyPhoneOTPAPI(formData.email, formData.phone, phoneOtp);
+    if (result.success && result.user) {
+      toast.success('Registration successful!');
+      navigate('/');
+    } else {
+      toast.error(result.error || 'Verification failed');
     }
+    setLoading(false);
   };
 
-  const resendEmailOTP = async () => {
+  const handleResendEmailOTP = async () => {
     if (emailTimer > 0) return;
     setLoading(true);
-    try {
-      await api.post('/auth/send-email-otp', { email: formData.email, name: formData.name });
+    const result = await resendEmailOTPAPI(formData.email);
+    if (result.success) {
       toast.success('OTP resent!');
       setEmailTimer(60);
-    } catch (err) {
-      toast.error('Failed to resend OTP');
-    } finally {
-      setLoading(false);
+    } else {
+      toast.error(result.error);
     }
+    setLoading(false);
   };
 
-  const resendPhoneOTP = async () => {
+  const handleResendPhoneOTP = async () => {
     if (phoneTimer > 0) return;
     setLoading(true);
-    try {
-      await api.post('/auth/send-phone-otp', { phone: formData.phone, email: formData.email });
+    const result = await sendPhoneOTPAPI(formData.phone, formData.email);
+    if (result.success) {
       toast.success('OTP resent!');
       setPhoneTimer(60);
-    } catch (err) {
-      toast.error('Failed to resend OTP');
-    } finally {
-      setLoading(false);
+    } else {
+      toast.error(result.error);
     }
+    setLoading(false);
   };
 
   const validateForm = () => {
+    if (!formData.name) {
+      toast.error('Please enter your name');
+      return false;
+    }
+    if (!formData.email) {
+      toast.error('Please enter your email');
+      return false;
+    }
+    if (!formData.phone || formData.phone.length < 10) {
+      toast.error('Please enter valid phone number');
+      return false;
+    }
     if (formData.password !== formData.confirmPassword) {
       toast.error('Passwords do not match');
       return false;
@@ -163,17 +173,13 @@ const RegisterWithOTP = () => {
       toast.error('Password must be at least 6 characters');
       return false;
     }
-    if (!formData.phone || formData.phone.length < 10) {
-      toast.error('Please enter valid phone number');
-      return false;
-    }
     return true;
   };
 
   const handleSubmitForm = (e) => {
     e.preventDefault();
     if (validateForm()) {
-      sendEmailOTP();
+      handleSendEmailOTP();
     }
   };
 
@@ -336,7 +342,7 @@ const RegisterWithOTP = () => {
               />
             </div>
             <button
-              onClick={verifyEmailOTP}
+              onClick={handleVerifyEmailOTP}
               disabled={loading}
               className="w-full bg-emerald-600 text-white py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
             >
@@ -345,7 +351,7 @@ const RegisterWithOTP = () => {
             {emailTimer > 0 ? (
               <p className="text-center text-sm text-gray-500">Resend in {emailTimer}s</p>
             ) : (
-              <button onClick={resendEmailOTP} className="w-full text-emerald-600 text-sm">
+              <button onClick={handleResendEmailOTP} className="w-full text-emerald-600 text-sm">
                 Resend OTP
               </button>
             )}
@@ -367,7 +373,7 @@ const RegisterWithOTP = () => {
               />
             </div>
             <button
-              onClick={verifyPhoneOTP}
+              onClick={handleVerifyPhoneOTP}
               disabled={loading}
               className="w-full bg-emerald-600 text-white py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
             >
@@ -376,7 +382,7 @@ const RegisterWithOTP = () => {
             {phoneTimer > 0 ? (
               <p className="text-center text-sm text-gray-500">Resend in {phoneTimer}s</p>
             ) : (
-              <button onClick={resendPhoneOTP} className="w-full text-emerald-600 text-sm">
+              <button onClick={handleResendPhoneOTP} className="w-full text-emerald-600 text-sm">
                 Resend OTP
               </button>
             )}

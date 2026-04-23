@@ -29,12 +29,10 @@ export const AuthProvider = ({ children }) => {
     
     if (token && savedUser) {
       try {
-        // Try to verify token with backend
         const response = await api.get('/auth/me');
         if (response.data) {
           setUser(response.data);
           localStorage.setItem('user', JSON.stringify(response.data));
-          console.log('User verified:', response.data);
         }
       } catch (err) {
         console.error('Token verification failed:', err);
@@ -45,47 +43,77 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   };
 
-  // New registration with OTP
-  const sendVerificationOTP = async (userData) => {
+  // NEW: Send Email OTP for Registration
+  const sendEmailOTP = async (userData) => {
     try {
       setError(null);
       const response = await api.post('/auth/send-verification-otp', userData);
-      console.log('Send OTP response:', response.data);
+      console.log('Send email OTP response:', response.data);
       return { success: true, email: response.data.email };
     } catch (err) {
-      console.error('Send OTP error:', err);
+      console.error('Send email OTP error:', err);
       const errorMsg = err.response?.data?.message || 'Failed to send OTP';
       setError(errorMsg);
       return { success: false, error: errorMsg };
     }
   };
 
-  const verifyOTPAndRegister = async (email, otp) => {
+  // NEW: Verify Email OTP
+  const verifyEmailOTP = async (email, otp) => {
     try {
       setError(null);
       const response = await api.post('/auth/verify-registration', { email, otp });
-      console.log('Verify OTP response:', response.data);
+      console.log('Verify email OTP response:', response.data);
+      return { success: true, message: response.data.message };
+    } catch (err) {
+      console.error('Verify email OTP error:', err);
+      const errorMsg = err.response?.data?.message || 'Invalid OTP';
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
+    }
+  };
+
+  // NEW: Send Phone OTP
+  const sendPhoneOTP = async (phone, email) => {
+    try {
+      setError(null);
+      const response = await api.post('/auth/send-phone-otp', { phone, email });
+      console.log('Send phone OTP response:', response.data);
+      return { success: true, message: response.data.message };
+    } catch (err) {
+      console.error('Send phone OTP error:', err);
+      const errorMsg = err.response?.data?.message || 'Failed to send phone OTP';
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
+    }
+  };
+
+  // NEW: Verify Phone OTP and Complete Registration
+  const verifyPhoneOTP = async (email, phone, otp) => {
+    try {
+      setError(null);
+      const response = await api.post('/auth/verify-phone-otp', { email, phone, otp });
+      console.log('Verify phone OTP response:', response.data);
       
       if (response.data.user) {
         localStorage.setItem('user', JSON.stringify(response.data.user));
         if (response.data.token) {
           localStorage.setItem('token', response.data.token);
-        } else {
-          localStorage.setItem('token', 'true');
         }
         setUser(response.data.user);
         return { success: true, user: response.data.user };
       }
       return { success: false, error: 'Verification failed' };
     } catch (err) {
-      console.error('Verify OTP error:', err);
-      const errorMsg = err.response?.data?.message || 'Verification failed';
+      console.error('Verify phone OTP error:', err);
+      const errorMsg = err.response?.data?.message || 'Invalid OTP';
       setError(errorMsg);
       return { success: false, error: errorMsg };
     }
   };
 
-  const resendOTP = async (email) => {
+  // NEW: Resend Email OTP
+  const resendEmailOTP = async (email) => {
     try {
       setError(null);
       const response = await api.post('/auth/resend-otp', { email });
@@ -97,12 +125,12 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Forgot password with OTP
+  // Forgot Password OTP
   const sendPasswordResetOTP = async (email) => {
     try {
       setError(null);
       const response = await api.post('/auth/send-otp', { email, type: 'password_reset' });
-      return { success: true, email: response.data.email };
+      return { success: true, message: response.data.message };
     } catch (err) {
       const errorMsg = err.response?.data?.message || 'Failed to send OTP';
       setError(errorMsg);
@@ -144,8 +172,6 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('user', JSON.stringify(response.data.user));
         if (response.data.token) {
           localStorage.setItem('token', response.data.token);
-        } else {
-          localStorage.setItem('token', 'true');
         }
         setUser(response.data.user);
         return { success: true, user: response.data.user };
@@ -178,9 +204,11 @@ export const AuthProvider = ({ children }) => {
     error,
     login,
     logout,
-    sendVerificationOTP,
-    verifyOTPAndRegister,
-    resendOTP,
+    sendEmailOTP,
+    verifyEmailOTP,
+    sendPhoneOTP,
+    verifyPhoneOTP,
+    resendEmailOTP,
     sendPasswordResetOTP,
     verifyPasswordResetOTP,
     resetPassword,
