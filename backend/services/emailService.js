@@ -117,6 +117,73 @@ const getOrderStatusEmail = (userName, orderId, status, totalAmount) => {
     };
 };
 
+// Send OTP email
+export const sendOTPEmail = async (email, otp, type) => {
+    const typeMessage = type === 'password_reset' ? 'reset your password' : 'verify your account';
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>OTP Verification - KiranaConnect</title>
+      </head>
+      <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4;">
+        <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+          <!-- Header -->
+          <div style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); padding: 30px; text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 10px;">🔐</div>
+            <h1 style="color: white; margin: 0; font-size: 24px;">KiranaConnect</h1>
+            <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0;">OTP Verification</p>
+          </div>
+          
+          <!-- Content -->
+          <div style="padding: 30px 25px;">
+            <h2 style="color: #1f2937; margin-top: 0;">Verification Code</h2>
+            <p style="color: #4b5563; font-size: 16px;">
+              Your OTP to ${typeMessage} is:
+            </p>
+            
+            <!-- OTP Code -->
+            <div style="text-align: center; margin: 25px 0;">
+              <span style="display: inline-block; background-color: #f3f4f6; padding: 15px 30px; font-size: 32px; font-weight: bold; letter-spacing: 8px; border-radius: 8px; font-family: monospace;">
+                ${otp}
+              </span>
+            </div>
+            
+            <p style="color: #6b7280; font-size: 14px;">
+              This OTP is valid for <strong>10 minutes</strong>.
+            </p>
+            
+            <hr style="margin: 25px 0; border: none; border-top: 1px solid #e5e7eb;" />
+            
+            <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+              If you didn't request this, please ignore this email.
+            </p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    try {
+        const mailOptions = {
+            from: `"KiranaConnect" <${process.env.EMAIL_USER}>`,
+            to: email,
+            subject: `OTP to ${typeMessage} - KiranaConnect`,
+            html: html
+        };
+
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`✅ OTP email sent to ${email}`);
+        return true;
+    } catch (error) {
+        console.error('❌ OTP email error:', error);
+        return false;
+    }
+};
+
 // Send order status email
 export const sendOrderStatusEmail = async (user, orderId, status, totalAmount) => {
     try {
@@ -142,17 +209,24 @@ export const sendOrderStatusEmail = async (user, orderId, status, totalAmount) =
 export const sendWelcomeEmail = async (user) => {
     try {
         const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
         <div style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); padding: 30px; text-align: center;">
-          <h1 style="color: white; margin: 0;">Welcome to KiranaConnect!</h1>
+          <div style="font-size: 48px; margin-bottom: 10px;">🎉</div>
+          <h1 style="color: white; margin: 0; font-size: 28px;">Welcome to KiranaConnect!</h1>
         </div>
-        <div style="padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
-          <h2>Hi ${user.name},</h2>
-          <p>Thank you for joining KiranaConnect! 🎉</p>
-          <p>Start shopping and get fresh groceries delivered to your doorstep.</p>
+        <div style="padding: 30px 25px;">
+          <h2 style="color: #1f2937; margin-top: 0;">Hi ${user.name},</h2>
+          <p style="color: #4b5563; font-size: 16px;">Thank you for joining KiranaConnect! 🎉</p>
+          <p style="color: #4b5563; font-size: 16px;">Start shopping and get fresh groceries delivered to your doorstep in under 30 minutes.</p>
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${process.env.FRONTEND_URL}" style="background: #059669; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px;">Start Shopping</a>
+            <a href="${process.env.FRONTEND_URL}" style="display: inline-block; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+              Start Shopping
+            </a>
           </div>
+          <hr style="margin: 25px 0; border: none; border-top: 1px solid #e5e7eb;" />
+          <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+            Need help? Contact us at support@kiranaconnect.com
+          </p>
         </div>
       </div>
     `;
@@ -171,4 +245,4 @@ export const sendWelcomeEmail = async (user) => {
     }
 };
 
-export default { sendOrderStatusEmail, sendWelcomeEmail };
+export default { sendOrderStatusEmail, sendWelcomeEmail, sendOTPEmail };

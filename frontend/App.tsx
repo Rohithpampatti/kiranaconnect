@@ -26,6 +26,7 @@ import { WishlistProvider } from './src/context/WishlistContext';
 import PaymentQR from './src/pages/PaymentQR';
 import OrderConfirmation from './src/pages/OrderConfirmation';
 import TrackOrder from './src/pages/TrackOrder';
+import ForgotPassword from './src/pages/ForgotPassword';
 
 function App() {
   return (
@@ -53,6 +54,7 @@ function App() {
                   <Route path="/payment-qr" element={<PaymentQR />} />
                   <Route path="/order-confirmation" element={<OrderConfirmation />} />
                   <Route path="/track-order/:orderId" element={<TrackOrder />} />
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
                 </Routes>
               </main>
               <Footer />

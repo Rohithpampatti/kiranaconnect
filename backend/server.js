@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { sendOrderStatusEmail, sendWelcomeEmail } from './services/emailService.js';
+import { sendOrderStatusEmail, sendWelcomeEmail, sendOTPEmail } from './services/emailService.js';
 
 dotenv.config();
 
@@ -254,6 +254,92 @@ app.get('/api/auth/me', protect, async (req, res) => {
     try {
         const user = await User.findById(req.user.id).select('-password');
         res.json(user);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// ============= OTP ROUTES =============
+const otpSchema = new mongoose.Schema({
+    email: { type: String, required: true },
+    otp: { type: String, required: true },
+    type: { type: String, enum: ['password_reset', 'email_verification'], required: true },
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 10 * 60 * 1000) },
+    createdAt: { type: Date, default: Date.now }
+});
+
+const OTP = mongoose.model('OTP', otpSchema);
+
+// Send OTP
+app.post('/api/auth/send-otp', async (req, res) => {
+    try {
+        const { email, type } = req.body;
+
+        if (type === 'password_reset') {
+            const user = await User.findOne({ email });
+            if (!user) {
+                return res.status(404).json({ message: 'No account found with this email' });
+            }
+        }
+
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        await OTP.deleteMany({ email, type });
+        await OTP.create({ email, otp, type });
+
+        await sendOTPEmail(email, otp, type);
+        res.json({ message: 'OTP sent successfully' });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Verify OTP
+app.post('/api/auth/verify-otp', async (req, res) => {
+    try {
+        const { email, otp, type } = req.body;
+
+        const otpRecord = await OTP.findOne({ email, otp, type });
+        if (!otpRecord) {
+            return res.status(400).json({ message: 'Invalid OTP' });
+        }
+        if (otpRecord.expiresAt < new Date()) {
+            await OTP.deleteOne({ _id: otpRecord._id });
+            return res.status(400).json({ message: 'OTP has expired' });
+        }
+
+        await OTP.deleteOne({ _id: otpRecord._id });
+
+        const resetToken = jwt.sign(
+            { email, purpose: 'password_reset' },
+            process.env.JWT_SECRET || 'secret123',
+            { expiresIn: '15m' }
+        );
+
+        res.json({ message: 'OTP verified', resetToken });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Reset password
+app.post('/api/auth/reset-password', async (req, res) => {
+    try {
+        const { resetToken, newPassword } = req.body;
+        const decoded = jwt.verify(resetToken, process.env.JWT_SECRET || 'secret123');
+
+        if (decoded.purpose !== 'password_reset') {
+            return res.status(400).json({ message: 'Invalid token' });
+        }
+
+        const user = await User.findOne({ email: decoded.email });
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        user.password = newPassword;
+        await user.save();
+
+        res.json({ message: 'Password reset successfully' });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
