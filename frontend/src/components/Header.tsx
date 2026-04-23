@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ShoppingCart, User, Menu, X, Search, Store, LogOut, ClipboardList, Heart } from 'lucide-react';
+import { ShoppingCart, User, Menu, X, Search, Store, LogOut, ClipboardList } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import NotificationBell from './NotificationBell';
@@ -34,7 +34,6 @@ const Header = () => {
 
   const navLinks = [
     { name: 'Store', path: '/', show: true },
-    { name: 'Wishlist', path: '/wishlist', show: isAuthenticated },
     { name: 'My Orders', path: '/orders', show: isAuthenticated },
     { name: 'Profile', path: '/profile', show: isAuthenticated },
     { name: 'Admin', path: '/admin', show: user?.role === 'admin' },
@@ -76,16 +75,12 @@ const Header = () => {
             <input 
               type="text" 
               placeholder="Search groceries..." 
-              className="pl-10 pr-4 py-2 BG-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-emerald-500/20 w-64 transition-all"
+              className="pl-10 pr-4 py-2 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-emerald-500/20 w-64 transition-all"
             />
           </div>
           
           {isAuthenticated ? (
             <>
-              <Link to="/wishlist" className="p-2 text-slate-600 hover:bg-slate-100 rounded-full transition-colors">
-                <Heart size={22} />
-              </Link>
-              
               <Link to="/cart" className="p-2 text-slate-600 hover:bg-slate-100 rounded-full transition-colors relative">
                 <ShoppingCart size={22} />
                 {cartCount > 0 && (

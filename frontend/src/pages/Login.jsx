@@ -12,20 +12,20 @@ const Login = () => {
   const { login, user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
-  // Redirect if already logged in - THIS WILL TRIGGER AFTER STATE UPDATE
+  // Redirect if already logged in
   useEffect(() => {
     console.log('Redirect check - isAuthenticated:', isAuthenticated, 'user:', user);
     if (isAuthenticated && user) {
       console.log('Redirecting user with role:', user.role);
       if (user.role === 'admin') {
-        navigate('/admin-panel');
+        window.location.href = '/admin-panel';
       } else if (user.role === 'delivery') {
-        navigate('/delivery');
+        window.location.href = '/delivery';
       } else {
-        navigate('/');
+        window.location.href = '/';
       }
     }
-  }, [isAuthenticated, user, navigate]);
+  }, [isAuthenticated, user]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -40,8 +40,14 @@ const Login = () => {
       
       if (result.success && result.user) {
         console.log('Login successful, user:', result.user);
-        // DON'T navigate here - let useEffect handle it
-        // The state update will trigger the useEffect above
+        // Use window.location for immediate redirect
+        if (result.user.role === 'admin') {
+          window.location.href = '/admin-panel';
+        } else if (result.user.role === 'delivery') {
+          window.location.href = '/delivery';
+        } else {
+          window.location.href = '/';
+        }
       } else {
         setError(result.error || 'Login failed. Please check your credentials.');
       }

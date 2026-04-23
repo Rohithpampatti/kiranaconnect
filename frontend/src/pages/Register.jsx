@@ -53,7 +53,8 @@ const Register = () => {
       });
       
       if (result && result.success) {
-        navigate('/');
+        // Use window.location for reliable redirect
+        window.location.href = '/';
       } else {
         setRegisterError(result?.error || 'Registration failed. Please try again.');
       }
