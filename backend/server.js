@@ -11,7 +11,7 @@ dotenv.config();
 
 const app = express();
 
-// ============= CORS CONFIGURATION - FIXED FOR PRODUCTION =============
+// ============= CORS CONFIGURATION =============
 const allowedOrigins = [
     'http://localhost:5173',
     'https://kiranaconnect1.vercel.app',
@@ -20,7 +20,6 @@ const allowedOrigins = [
 
 app.use(cors({
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl)
         if (!origin) return callback(null, true);
         if (allowedOrigins.indexOf(origin) === -1) {
             const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
@@ -33,14 +32,13 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Requested-With']
 }));
 
-// Handle preflight requests
 app.options('*', cors());
 
 // Middleware
 app.use(express.json());
 app.use(cookieParser());
 
-// Store delivery locations in memory (in production, use Redis or database)
+// Store delivery locations
 const deliveryLocations = new Map();
 
 // MongoDB Connection
@@ -137,7 +135,7 @@ const Order = mongoose.model('Order', orderSchema);
 // Auth Middleware
 const protect = async (req, res, next) => {
     try {
-        const token = req.cookies.token;
+        const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
         if (!token) {
             return res.status(401).json({ message: 'Not authorized' });
         }
@@ -186,7 +184,6 @@ app.post('/api/auth/register', async (req, res) => {
         });
         await user.save();
 
-        // Send welcome email
         await sendWelcomeEmail(user);
 
         const token = jwt.sign(
@@ -198,14 +195,15 @@ app.post('/api/auth/register', async (req, res) => {
         res.cookie('token', token, {
             httpOnly: true,
             maxAge: 30 * 24 * 60 * 60 * 1000,
-            sameSite: 'lax',
-            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'none',
+            secure: true,
             domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
         });
 
         res.json({
             message: 'Registration successful',
-            user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone, address: user.address }
+            user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone, address: user.address },
+            token: token
         });
     } catch (error) {
         console.error('Register error:', error);
@@ -231,14 +229,15 @@ app.post('/api/auth/login', async (req, res) => {
         res.cookie('token', token, {
             httpOnly: true,
             maxAge: 30 * 24 * 60 * 60 * 1000,
-            sameSite: 'lax',
-            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'none',
+            secure: true,
             domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
         });
 
         res.json({
             message: 'Login successful',
-            user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone, address: user.address }
+            user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone, address: user.address },
+            token: token
         });
     } catch (error) {
         console.error('Login error:', error);
@@ -489,7 +488,7 @@ app.put('/api/orders/:id/status', protect, async (req, res) => {
     }
 });
 
-// Track order location (for customers)
+// Track order location
 app.get('/api/orders/:orderId/track', protect, async (req, res) => {
     try {
         const { orderId } = req.params;

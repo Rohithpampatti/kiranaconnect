@@ -65,27 +65,32 @@ export const AuthProvider = ({ children }) => {
   };
 
   const login = async (email, password) => {
-    try {
-      setError(null);
-      const response = await api.post('/auth/login', { email, password });
-      console.log('Login API response:', response.data);
-      
-      if (response.data.user) {
-        // Store user data
-        localStorage.setItem('user', JSON.stringify(response.data.user));
+  try {
+    setError(null);
+    const response = await api.post('/auth/login', { email, password });
+    console.log('Login API response:', response.data);
+    
+    if (response.data.user) {
+      // Store user data
+      localStorage.setItem('user', JSON.stringify(response.data.user));
+      // Store token from response body
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token);
+      } else {
         localStorage.setItem('token', 'true');
-        setUser(response.data.user);
-        console.log('User set in state:', response.data.user);
-        return { success: true, user: response.data.user };
       }
-      return { success: false, error: 'Login failed' };
-    } catch (err) {
-      console.error('Login API error:', err);
-      const errorMsg = err.response?.data?.message || 'Login failed';
-      setError(errorMsg);
-      return { success: false, error: errorMsg };
+      setUser(response.data.user);
+      console.log('User set in state:', response.data.user);
+      return { success: true, user: response.data.user };
     }
-  };
+    return { success: false, error: 'Login failed' };
+  } catch (err) {
+    console.error('Login API error:', err);
+    const errorMsg = err.response?.data?.message || 'Login failed';
+    setError(errorMsg);
+    return { success: false, error: errorMsg };
+  }
+};
 
   const logout = async () => {
     try {
