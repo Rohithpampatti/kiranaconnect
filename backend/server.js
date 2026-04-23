@@ -11,13 +11,34 @@ dotenv.config();
 
 const app = express();
 
+// ============= CORS CONFIGURATION - FIXED FOR PRODUCTION =============
+const allowedOrigins = [
+    'http://localhost:5173',
+    'https://kiranaconnect1.vercel.app',
+    'https://kiranaconnect.vercel.app'
+];
+
+app.use(cors({
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) === -1) {
+            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+            return callback(new Error(msg), false);
+        }
+        return callback(null, true);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Requested-With']
+}));
+
+// Handle preflight requests
+app.options('*', cors());
+
 // Middleware
 app.use(express.json());
 app.use(cookieParser());
-app.use(cors({
-    origin: 'http://localhost:5173',
-    credentials: true
-}));
 
 // Store delivery locations in memory (in production, use Redis or database)
 const deliveryLocations = new Map();
@@ -177,7 +198,9 @@ app.post('/api/auth/register', async (req, res) => {
         res.cookie('token', token, {
             httpOnly: true,
             maxAge: 30 * 24 * 60 * 60 * 1000,
-            sameSite: 'lax'
+            sameSite: 'lax',
+            secure: process.env.NODE_ENV === 'production',
+            domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
         });
 
         res.json({
@@ -208,7 +231,9 @@ app.post('/api/auth/login', async (req, res) => {
         res.cookie('token', token, {
             httpOnly: true,
             maxAge: 30 * 24 * 60 * 60 * 1000,
-            sameSite: 'lax'
+            sameSite: 'lax',
+            secure: process.env.NODE_ENV === 'production',
+            domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
         });
 
         res.json({
@@ -432,7 +457,6 @@ app.put('/api/orders/:id/status', protect, async (req, res) => {
 
         if (!order) return res.status(404).json({ message: 'Order not found' });
 
-        // Delivery partner can accept and deliver
         if (req.user.role === 'delivery') {
             if (status === 'out-for-delivery') {
                 order.status = status;
@@ -443,7 +467,6 @@ app.put('/api/orders/:id/status', protect, async (req, res) => {
                 return res.status(403).json({ message: 'Unauthorized action' });
             }
         }
-        // Admin can update any status
         else if (req.user.role === 'admin') {
             order.status = status;
             if (status === 'out-for-delivery' && req.body.deliveryPartner) {
@@ -456,19 +479,9 @@ app.put('/api/orders/:id/status', protect, async (req, res) => {
 
         await order.save();
 
-        // Send email notification to customer
         if (order.user && order.user.email && (status === 'confirmed' || status === 'preparing' || status === 'out-for-delivery' || status === 'delivered')) {
             await sendOrderStatusEmail(order.user, order._id, status, order.totalAmount);
         }
-
-        // Create notification for user
-        const notification = new Notification({
-            user: order.user,
-            orderId: order._id,
-            message: getStatusMessage(status, order._id),
-            status
-        });
-        await notification.save();
 
         res.json(order);
     } catch (error) {
@@ -486,7 +499,6 @@ app.get('/api/orders/:orderId/track', protect, async (req, res) => {
             return res.status(404).json({ message: 'Order not found' });
         }
 
-        // Check if user owns this order or is admin/delivery
         if (order.user.toString() !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'delivery') {
             return res.status(403).json({ message: 'Unauthorized' });
         }
@@ -502,9 +514,7 @@ app.get('/api/orders/:orderId/track', protect, async (req, res) => {
     }
 });
 
-// ============= FIXED DELIVERY ROUTES =============
-
-// Get all available orders for delivery (unassigned orders only)
+// ============= DELIVERY ROUTES =============
 app.get('/api/delivery/all-orders', protect, deliveryOnly, async (req, res) => {
     try {
         const orders = await Order.find({
@@ -520,7 +530,6 @@ app.get('/api/delivery/all-orders', protect, deliveryOnly, async (req, res) => {
     }
 });
 
-// Get my assigned deliveries
 app.get('/api/delivery/orders', protect, deliveryOnly, async (req, res) => {
     try {
         const orders = await Order.find({
@@ -533,7 +542,6 @@ app.get('/api/delivery/orders', protect, deliveryOnly, async (req, res) => {
     }
 });
 
-// Accept delivery (change status to out-for-delivery)
 app.post('/api/delivery/accept-order', protect, deliveryOnly, async (req, res) => {
     try {
         const { orderId } = req.body;
@@ -561,7 +569,6 @@ app.post('/api/delivery/accept-order', protect, deliveryOnly, async (req, res) =
     }
 });
 
-// Get delivery partner earnings
 app.get('/api/delivery/earnings', protect, deliveryOnly, async (req, res) => {
     try {
         const deliveredOrders = await Order.find({
@@ -646,7 +653,7 @@ app.get('/api/admin/stats', protect, adminOnly, async (req, res) => {
     }
 });
 
-// ============= NOTIFICATION ROUTES =============
+// ============= NOTIFICATION SCHEMA =============
 const notificationSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     orderId: String,
@@ -675,16 +682,6 @@ app.put('/api/notifications/:id/read', protect, async (req, res) => {
     }
 });
 
-function getStatusMessage(status, orderId) {
-    const messages = {
-        'confirmed': `✅ Order #${orderId.toString().slice(-8)} has been confirmed!`,
-        'preparing': `👨‍🍳 Your order #${orderId.toString().slice(-8)} is being prepared!`,
-        'out-for-delivery': `🚚 Your order #${orderId.toString().slice(-8)} is out for delivery!`,
-        'delivered': `🎉 Your order #${orderId.toString().slice(-8)} has been delivered! Enjoy your meal!`
-    };
-    return messages[status] || `Order #${orderId.toString().slice(-8)} status updated to ${status}`;
-}
-
 // ============= WISHLIST ROUTES =============
 const wishlistSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -694,7 +691,6 @@ const wishlistSchema = new mongoose.Schema({
 
 const Wishlist = mongoose.model('Wishlist', wishlistSchema);
 
-// Get wishlist
 app.get('/api/wishlist', protect, async (req, res) => {
     try {
         const wishlist = await Wishlist.find({ user: req.user.id }).populate('productId');
@@ -714,7 +710,6 @@ app.get('/api/wishlist', protect, async (req, res) => {
     }
 });
 
-// Add to wishlist
 app.post('/api/wishlist', protect, async (req, res) => {
     try {
         const { productId } = req.body;
@@ -742,7 +737,6 @@ app.post('/api/wishlist', protect, async (req, res) => {
     }
 });
 
-// Remove from wishlist
 app.delete('/api/wishlist/:productId', protect, async (req, res) => {
     try {
         await Wishlist.findOneAndDelete({ user: req.user.id, productId: req.params.productId });
@@ -763,7 +757,6 @@ app.delete('/api/wishlist/:productId', protect, async (req, res) => {
     }
 });
 
-// Clear wishlist
 app.delete('/api/wishlist/clear', protect, async (req, res) => {
     try {
         await Wishlist.deleteMany({ user: req.user.id });
