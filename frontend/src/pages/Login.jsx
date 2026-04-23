@@ -26,7 +26,7 @@ const Login = () => {
     }
   }, [isAuthenticated, user, navigate]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
@@ -50,7 +50,7 @@ const Login = () => {
       } else {
         setError(result.error || 'Login failed. Please check your credentials.');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Login error:', err);
       setError(err.message || 'Login failed. Please try again.');
     } finally {

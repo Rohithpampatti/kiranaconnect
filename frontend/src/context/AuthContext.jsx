@@ -49,21 +49,21 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const login = async (email: string, password: string) => {
-  try {
-    const response = await api.post('/auth/login', { email, password });
-    
-    if (response.data.user) {
-      localStorage.setItem('user', JSON.stringify(response.data.user));
-      localStorage.setItem('token', 'true');
-      setUser(response.data.user);
-      return { success: true, user: response.data.user };
+  const login = async (email, password) => {
+    try {
+      const response = await api.post('/auth/login', { email, password });
+      
+      if (response.data.user) {
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+        localStorage.setItem('token', 'true');
+        setUser(response.data.user);
+        return { success: true, user: response.data.user };
+      }
+      return { success: false, error: 'Login failed' };
+    } catch (err) {
+      return { success: false, error: err.response?.data?.message || 'Login failed' };
     }
-    return { success: false, error: 'Login failed' };
-  } catch (err: any) {
-    return { success: false, error: err.response?.data?.message || 'Login failed' };
-  }
-};
+  };
 
   const logout = async () => {
     try {
