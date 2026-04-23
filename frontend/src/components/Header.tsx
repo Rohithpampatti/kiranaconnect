@@ -5,23 +5,29 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import NotificationBell from './NotificationBell';
 
-const Header = () => {
-  const [isScrolled, setIsScrolled] = useState(false);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [cartCount, setCartCount] = useState(0);
+interface NavLink {
+  name: string;
+  path: string;
+  show: boolean;
+}
+
+const Header: React.FC = () => {
+  const [isScrolled, setIsScrolled] = useState<boolean>(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
+  const [cartCount, setCartCount] = useState<number>(0);
   const location = useLocation();
   const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuth();
 
   useEffect(() => {
-    const handleScroll = () => setIsScrolled(window.scrollY > 20);
+    const handleScroll = (): void => setIsScrolled(window.scrollY > 20);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
   // Get cart count from localStorage
   useEffect(() => {
-    const updateCartCount = () => {
+    const updateCartCount = (): void => {
       const cart = JSON.parse(localStorage.getItem('cart') || '[]');
       setCartCount(cart.reduce((sum: number, item: any) => sum + item.quantity, 0));
     };
@@ -32,7 +38,7 @@ const Header = () => {
     return () => window.removeEventListener('cartUpdated', updateCartCount);
   }, []);
 
-  const navLinks = [
+  const navLinks: NavLink[] = [
     { name: 'Store', path: '/', show: true },
     { name: 'My Orders', path: '/orders', show: isAuthenticated },
     { name: 'Profile', path: '/profile', show: isAuthenticated },
@@ -40,7 +46,7 @@ const Header = () => {
     { name: 'Delivery', path: '/delivery', show: user?.role === 'delivery' },
   ];
 
-  const handleLogout = async () => {
+  const handleLogout = async (): Promise<void> => {
     await logout();
     navigate('/login');
     setIsMobileMenuOpen(false);
