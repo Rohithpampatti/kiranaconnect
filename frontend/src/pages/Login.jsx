@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { ShoppingBag, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { toast } from 'react-toastify';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -10,12 +11,11 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login, user, isAuthenticated } = useAuth();
-  const navigate = useNavigate();
 
   // Redirect if already logged in
   useEffect(() => {
     if (isAuthenticated && user) {
-      console.log('User already logged in, redirecting...');
+      console.log('User already logged in, redirecting to:', user.role);
       if (user.role === 'admin') {
         window.location.href = '/admin-panel';
       } else if (user.role === 'delivery') {
@@ -37,17 +37,21 @@ const Login = () => {
     console.log('Login result:', result);
     
     if (result.success && result.user) {
-      console.log('Login successful, redirecting...');
-      // Use window.location for immediate redirect
-      if (result.user.role === 'admin') {
-        window.location.href = '/admin-panel';
-      } else if (result.user.role === 'delivery') {
-        window.location.href = '/delivery';
-      } else {
-        window.location.href = '/';
-      }
+      console.log('Login successful! Redirecting based on role:', result.user.role);
+      toast.success('Login successful!');
+      // Small delay to ensure state updates
+      setTimeout(() => {
+        if (result.user.role === 'admin') {
+          window.location.href = '/admin-panel';
+        } else if (result.user.role === 'delivery') {
+          window.location.href = '/delivery';
+        } else {
+          window.location.href = '/';
+        }
+      }, 100);
     } else {
       setError(result.error || 'Login failed. Please check your credentials.');
+      toast.error(result.error || 'Login failed');
       setLoading(false);
     }
   };
@@ -82,7 +86,7 @@ const Login = () => {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-emerald-500 focus:border-emerald-500"
+                  className="appearance-none relative block w-full px-3 py-2 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 sm:text-sm"
                   placeholder="Enter your email"
                 />
               </div>
@@ -99,7 +103,7 @@ const Login = () => {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-2 pl-10 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-emerald-500 focus:border-emerald-500"
+                  className="appearance-none relative block w-full px-3 py-2 pl-10 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 sm:text-sm"
                   placeholder="Enter your password"
                 />
                 <button
@@ -107,7 +111,7 @@ const Login = () => {
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute inset-y-0 right-0 pr-3 flex items-center"
                 >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  {showPassword ? <EyeOff className="h-5 w-5 text-gray-400" /> : <Eye className="h-5 w-5 text-gray-400" />}
                 </button>
               </div>
             </div>
@@ -115,21 +119,40 @@ const Login = () => {
 
           <div className="flex items-center justify-between">
             <div className="flex items-center">
-              <input type="checkbox" className="h-4 w-4 text-emerald-600 rounded" />
-              <label className="ml-2 text-sm text-gray-600">Remember me</label>
+              <input
+                id="remember-me"
+                name="remember-me"
+                type="checkbox"
+                className="h-4 w-4 text-emerald-600 focus:ring-emerald-500 border-gray-300 rounded"
+              />
+              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900">
+                Remember me
+              </label>
             </div>
-            <Link to="/forgot-password" className="text-sm text-emerald-600 hover:text-emerald-500">
-              Forgot password?
-            </Link>
+
+            <div className="text-sm">
+              <Link to="/forgot-password" className="font-medium text-emerald-600 hover:text-emerald-500">
+                Forgot password?
+              </Link>
+            </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-emerald-600 text-white py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
-          >
-            {loading ? 'Signing in...' : 'Sign in'}
-          </button>
+          <div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {loading ? (
+                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              ) : (
+                'Sign in'
+              )}
+            </button>
+          </div>
 
           <div className="text-center">
             <p className="text-sm text-gray-600">
@@ -140,6 +163,14 @@ const Login = () => {
             </p>
           </div>
         </form>
+
+        <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+          <p className="text-xs text-gray-500 text-center mb-2">Demo Credentials:</p>
+          <p className="text-xs text-gray-400 text-center">
+            Admin: admin@kiranaconnect.com / admin123<br />
+            Delivery: delivery@kiranaconnect.com / delivery123
+          </p>
+        </div>
       </div>
     </div>
   );
