@@ -8,8 +8,6 @@ import jwt from 'jsonwebtoken';
 import {
     sendOrderStatusEmail,
     sendWelcomeEmail,
-    sendOTPEmail,
-    sendVerificationEmail,
     sendOrderConfirmationEmail,
     sendOrderDeliveredEmail
 } from './services/emailService.js';
@@ -64,8 +62,8 @@ const addressSchema = new mongoose.Schema({
     isDefault: { type: Boolean, default: false }
 });
 
-// Pending User Schema for OTP Verification
-const pendingUserSchema = new mongoose.Schema({
+// User Schema
+const userSchema = new mongoose.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
@@ -74,26 +72,8 @@ const pendingUserSchema = new mongoose.Schema({
     city: { type: String, default: '' },
     state: { type: String, default: '' },
     pincode: { type: String, default: '' },
-    role: { type: String, default: 'user' },
-    createdAt: { type: Date, default: Date.now, expires: 600 }
-});
-
-const PendingUser = mongoose.model('PendingUser', pendingUserSchema);
-
-// User Schema
-const userSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
-    phone: { type: String, required: true, unique: true },
-    address: { type: String, default: '' },
-    city: { type: String, default: '' },
-    state: { type: String, default: '' },
-    pincode: { type: String, default: '' },
     role: { type: String, enum: ['user', 'admin', 'delivery'], default: 'user' },
     addresses: { type: [addressSchema], default: [] },
-    isEmailVerified: { type: Boolean, default: false },
-    isPhoneVerified: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -109,18 +89,6 @@ userSchema.methods.comparePassword = async function (password) {
 };
 
 const User = mongoose.model('User', userSchema);
-
-// OTP Schema
-const otpSchema = new mongoose.Schema({
-    email: { type: String },
-    phone: { type: String },
-    otp: { type: String, required: true },
-    type: { type: String, enum: ['password_reset', 'email_verification', 'phone_verification'], required: true },
-    expiresAt: { type: Date, default: () => new Date(Date.now() + 10 * 60 * 1000) },
-    createdAt: { type: Date, default: Date.now }
-});
-
-const OTP = mongoose.model('OTP', otpSchema);
 
 // Product Schema
 const productSchema = new mongoose.Schema({
@@ -167,7 +135,6 @@ const orderSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
-// Add index for better query performance
 orderSchema.index({ user: 1, createdAt: -1 });
 
 const Order = mongoose.model('Order', orderSchema);
@@ -221,273 +188,7 @@ const deliveryOnly = (req, res, next) => {
     next();
 };
 
-// ============= REGISTRATION WITH OTP VERIFICATION =============
-
-// Step 1: Send Email OTP
-app.post('/api/auth/send-verification-otp', async (req, res) => {
-    try {
-        const { email, name, password, address, city, state, pincode } = req.body;
-
-        const existingUser = await User.findOne({ email });
-        if (existingUser && existingUser.isEmailVerified) {
-            return res.status(400).json({ message: 'Email already registered' });
-        }
-
-        await PendingUser.deleteOne({ email });
-        await OTP.deleteMany({ email, type: 'email_verification' });
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-
-        const pendingUser = new PendingUser({
-            name,
-            email,
-            password: hashedPassword,
-            address: address || '',
-            city: city || '',
-            state: state || '',
-            pincode: pincode || '',
-            role: 'user'
-        });
-        await pendingUser.save();
-
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        await OTP.create({ email, otp, type: 'email_verification' });
-
-        await sendVerificationEmail(email, otp, name);
-
-        res.json({ success: true, message: 'Email OTP sent successfully', email });
-    } catch (error) {
-        console.error('Send email OTP error:', error);
-        res.status(500).json({ message: error.message });
-    }
-});
-
-// Step 2: Verify Email OTP
-app.post('/api/auth/verify-registration', async (req, res) => {
-    try {
-        const { email, otp } = req.body;
-
-        const otpRecord = await OTP.findOne({ email, otp, type: 'email_verification' });
-        if (!otpRecord) {
-            return res.status(400).json({ message: 'Invalid OTP' });
-        }
-        if (otpRecord.expiresAt < new Date()) {
-            await OTP.deleteOne({ _id: otpRecord._id });
-            return res.status(400).json({ message: 'OTP has expired' });
-        }
-
-        await OTP.deleteOne({ _id: otpRecord._id });
-
-        const pendingUser = await PendingUser.findOne({ email });
-        if (!pendingUser) {
-            return res.status(400).json({ message: 'Registration session expired' });
-        }
-
-        // Update pending user to mark email verified
-        pendingUser.isEmailVerified = true;
-        await pendingUser.save();
-
-        res.json({ success: true, message: 'Email verified. Please enter phone number.' });
-    } catch (error) {
-        console.error('Verify email error:', error);
-        res.status(500).json({ message: error.message });
-    }
-});
-
-// Step 3: Send Phone OTP
-app.post('/api/auth/send-phone-otp', async (req, res) => {
-    try {
-        const { phone, email } = req.body;
-
-        const existingUser = await User.findOne({ phone });
-        if (existingUser && existingUser.isPhoneVerified) {
-            return res.status(400).json({ message: 'Phone number already registered' });
-        }
-
-        const pendingUser = await PendingUser.findOne({ email });
-        if (!pendingUser) {
-            return res.status(400).json({ message: 'Please verify email first' });
-        }
-
-        await OTP.deleteMany({ phone, type: 'phone_verification' });
-
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        await OTP.create({ phone, otp, type: 'phone_verification' });
-
-        console.log(`📱 Phone OTP for ${phone}: ${otp}`);
-
-        res.json({ success: true, message: 'Phone OTP sent successfully' });
-    } catch (error) {
-        console.error('Send phone OTP error:', error);
-        res.status(500).json({ message: error.message });
-    }
-});
-
-// Step 4: Verify Phone OTP and Complete Registration
-app.post('/api/auth/verify-phone-otp', async (req, res) => {
-    try {
-        const { email, phone, otp } = req.body;
-
-        const otpRecord = await OTP.findOne({ phone, otp, type: 'phone_verification' });
-        if (!otpRecord) {
-            return res.status(400).json({ message: 'Invalid OTP' });
-        }
-        if (otpRecord.expiresAt < new Date()) {
-            await OTP.deleteOne({ _id: otpRecord._id });
-            return res.status(400).json({ message: 'OTP has expired' });
-        }
-
-        await OTP.deleteOne({ _id: otpRecord._id });
-
-        const pendingUser = await PendingUser.findOne({ email });
-        if (!pendingUser) {
-            return res.status(400).json({ message: 'Registration session expired' });
-        }
-
-        const user = new User({
-            name: pendingUser.name,
-            email: pendingUser.email,
-            password: pendingUser.password,
-            phone: phone,
-            address: pendingUser.address,
-            city: pendingUser.city,
-            state: pendingUser.state,
-            pincode: pendingUser.pincode,
-            role: pendingUser.role,
-            isEmailVerified: true,
-            isPhoneVerified: true
-        });
-        await user.save();
-
-        await PendingUser.deleteOne({ email });
-
-        await sendWelcomeEmail(user);
-
-        const token = jwt.sign(
-            { id: user._id, role: user.role },
-            process.env.JWT_SECRET || 'secret123',
-            { expiresIn: '30d' }
-        );
-
-        res.cookie('token', token, {
-            httpOnly: true,
-            maxAge: 30 * 24 * 60 * 60 * 1000,
-            sameSite: 'none',
-            secure: true,
-            domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
-        });
-
-        res.json({
-            success: true,
-            message: 'Registration completed successfully',
-            user: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role },
-            token: token
-        });
-    } catch (error) {
-        console.error('Complete registration error:', error);
-        res.status(500).json({ message: error.message });
-    }
-});
-
-// Resend Email OTP
-app.post('/api/auth/resend-otp', async (req, res) => {
-    try {
-        const { email } = req.body;
-
-        const pendingUser = await PendingUser.findOne({ email });
-        if (!pendingUser) {
-            return res.status(400).json({ message: 'No pending registration found' });
-        }
-
-        await OTP.deleteMany({ email, type: 'email_verification' });
-
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        await OTP.create({ email, otp, type: 'email_verification' });
-
-        await sendVerificationEmail(email, otp, pendingUser.name);
-
-        res.json({ success: true, message: 'OTP resent successfully' });
-    } catch (error) {
-        console.error('Resend OTP error:', error);
-        res.status(500).json({ message: error.message });
-    }
-});
-
-// ============= FORGOT PASSWORD OTP ROUTES =============
-
-app.post('/api/auth/send-otp', async (req, res) => {
-    try {
-        const { email, type } = req.body;
-
-        if (type === 'password_reset') {
-            const user = await User.findOne({ email });
-            if (!user) {
-                return res.status(404).json({ message: 'No account found with this email' });
-            }
-        }
-
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        await OTP.deleteMany({ email, type });
-        await OTP.create({ email, otp, type });
-
-        await sendOTPEmail(email, otp, type);
-        res.json({ message: 'OTP sent successfully' });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-
-app.post('/api/auth/verify-otp', async (req, res) => {
-    try {
-        const { email, otp, type } = req.body;
-
-        const otpRecord = await OTP.findOne({ email, otp, type });
-        if (!otpRecord) {
-            return res.status(400).json({ message: 'Invalid OTP' });
-        }
-        if (otpRecord.expiresAt < new Date()) {
-            await OTP.deleteOne({ _id: otpRecord._id });
-            return res.status(400).json({ message: 'OTP has expired' });
-        }
-
-        await OTP.deleteOne({ _id: otpRecord._id });
-
-        const resetToken = jwt.sign(
-            { email, purpose: 'password_reset' },
-            process.env.JWT_SECRET || 'secret123',
-            { expiresIn: '15m' }
-        );
-
-        res.json({ message: 'OTP verified', resetToken });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-
-app.post('/api/auth/reset-password', async (req, res) => {
-    try {
-        const { resetToken, newPassword } = req.body;
-        const decoded = jwt.verify(resetToken, process.env.JWT_SECRET || 'secret123');
-
-        if (decoded.purpose !== 'password_reset') {
-            return res.status(400).json({ message: 'Invalid token' });
-        }
-
-        const user = await User.findOne({ email: decoded.email });
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        user.password = newPassword;
-        await user.save();
-
-        res.json({ message: 'Password reset successfully' });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-
-// ============= REGULAR REGISTER (for admin) =============
+// ============= SIMPLIFIED REGISTER (NO OTP) =============
 app.post('/api/auth/register', async (req, res) => {
     try {
         const { name, email, password, phone, address, city, state, pincode, role } = req.body;
@@ -506,13 +207,16 @@ app.post('/api/auth/register', async (req, res) => {
             city: city || '',
             state: state || '',
             pincode: pincode || '',
-            role: role || 'user',
-            isEmailVerified: true,
-            isPhoneVerified: true
+            role: role || 'user'
         });
         await user.save();
 
-        await sendWelcomeEmail(user);
+        // Send welcome email (optional - won't break if fails)
+        try {
+            await sendWelcomeEmail(user);
+        } catch (emailError) {
+            console.error('Welcome email failed:', emailError);
+        }
 
         const token = jwt.sign(
             { id: user._id, role: user.role },
@@ -529,6 +233,7 @@ app.post('/api/auth/register', async (req, res) => {
         });
 
         res.json({
+            success: true,
             message: 'Registration successful',
             user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone, address: user.address },
             token: token
@@ -539,7 +244,7 @@ app.post('/api/auth/register', async (req, res) => {
     }
 });
 
-// ============= LOGIN ROUTE =============
+// ============= SIMPLIFIED LOGIN (NO OTP CHECK) =============
 app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -547,10 +252,6 @@ app.post('/api/auth/login', async (req, res) => {
         const user = await User.findOne({ email });
         if (!user) {
             return res.status(401).json({ message: 'Invalid credentials' });
-        }
-
-        if (!user.isEmailVerified) {
-            return res.status(401).json({ message: 'Please verify your email first' });
         }
 
         if (!(await user.comparePassword(password))) {
@@ -572,6 +273,7 @@ app.post('/api/auth/login', async (req, res) => {
         });
 
         res.json({
+            success: true,
             message: 'Login successful',
             user: { id: user._id, name: user.name, email: user.email, role: user.role, phone: user.phone, address: user.address },
             token: token
@@ -636,6 +338,90 @@ app.post('/api/auth/change-password', protect, async (req, res) => {
         user.password = newPassword;
         await user.save();
         res.json({ message: 'Password changed successfully' });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// ============= FORGOT PASSWORD (Keep OTP for password reset only) =============
+const otpSchema = new mongoose.Schema({
+    email: { type: String, required: true },
+    otp: { type: String, required: true },
+    type: { type: String, default: 'password_reset' },
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 10 * 60 * 1000) },
+    createdAt: { type: Date, default: Date.now }
+});
+
+const OTP = mongoose.model('OTP', otpSchema);
+
+const sendOTPEmail = async (email, otp, type) => {
+    const html = `
+        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto;">
+            <h2>Password Reset OTP</h2>
+            <p>Your OTP to reset your password is:</p>
+            <h1 style="font-size: 32px; letter-spacing: 5px;">${otp}</h1>
+            <p>This OTP is valid for 10 minutes.</p>
+        </div>
+    `;
+
+    // Implement email sending here
+    console.log(`OTP for ${email}: ${otp}`);
+};
+
+app.post('/api/auth/send-otp', async (req, res) => {
+    try {
+        const { email } = req.body;
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).json({ message: 'No account found with this email' });
+        }
+
+        await OTP.deleteMany({ email });
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        await OTP.create({ email, otp });
+
+        await sendOTPEmail(email, otp, 'password_reset');
+        res.json({ message: 'OTP sent successfully' });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+app.post('/api/auth/verify-otp', async (req, res) => {
+    try {
+        const { email, otp } = req.body;
+        const otpRecord = await OTP.findOne({ email, otp });
+        if (!otpRecord || otpRecord.expiresAt < new Date()) {
+            return res.status(400).json({ message: 'Invalid or expired OTP' });
+        }
+        await OTP.deleteOne({ _id: otpRecord._id });
+
+        const resetToken = jwt.sign(
+            { email, purpose: 'password_reset' },
+            process.env.JWT_SECRET || 'secret123',
+            { expiresIn: '15m' }
+        );
+        res.json({ message: 'OTP verified', resetToken });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+    try {
+        const { resetToken, newPassword } = req.body;
+        const decoded = jwt.verify(resetToken, process.env.JWT_SECRET || 'secret123');
+
+        if (decoded.purpose !== 'password_reset') {
+            return res.status(400).json({ message: 'Invalid token' });
+        }
+
+        const user = await User.findOne({ email: decoded.email });
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        user.password = newPassword;
+        await user.save();
+        res.json({ message: 'Password reset successfully' });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -739,7 +525,7 @@ app.delete('/api/products/:id', protect, adminOnly, async (req, res) => {
     }
 });
 
-// ============= SIMPLIFIED ORDER ROUTES (FIXED - NO EMAIL DEPENDENCY) =============
+// ============= ORDER ROUTES =============
 app.post('/api/orders', protect, async (req, res) => {
     try {
         const { items, subtotal, deliveryFee, discount, totalAmount, deliveryAddress, deliveryDate, deliveryTimeSlot, paymentMethod, couponApplied, customerLocation } = req.body;
@@ -760,6 +546,16 @@ app.post('/api/orders', protect, async (req, res) => {
         });
 
         await order.save();
+
+        const user = await User.findById(req.user.id);
+        if (user && user.email) {
+            try {
+                await sendOrderConfirmationEmail(user, order._id, items, totalAmount, deliveryAddress, deliveryDate, deliveryTimeSlot);
+            } catch (emailError) {
+                console.error('Order confirmation email failed:', emailError);
+            }
+        }
+
         res.status(201).json(order);
     } catch (error) {
         console.error('Order creation error:', error);
@@ -767,7 +563,6 @@ app.post('/api/orders', protect, async (req, res) => {
     }
 });
 
-// Get my orders - Returns empty array if no orders
 app.get('/api/orders/my-orders', protect, async (req, res) => {
     try {
         const orders = await Order.find({ user: req.user.id }).sort({ createdAt: -1 });
@@ -778,7 +573,6 @@ app.get('/api/orders/my-orders', protect, async (req, res) => {
     }
 });
 
-// Admin get all orders
 app.get('/api/orders', protect, adminOnly, async (req, res) => {
     try {
         const orders = await Order.find().populate('user', 'name email').sort({ createdAt: -1 });
@@ -789,7 +583,6 @@ app.get('/api/orders', protect, adminOnly, async (req, res) => {
     }
 });
 
-// Update order status
 app.put('/api/orders/:id/status', protect, async (req, res) => {
     try {
         const { status } = req.body;
@@ -819,7 +612,6 @@ app.put('/api/orders/:id/status', protect, async (req, res) => {
 
         await order.save();
 
-        // Try to send email but don't fail if it doesn't work
         try {
             if (order.user && order.user.email) {
                 if (status === 'delivered') {
@@ -830,8 +622,15 @@ app.put('/api/orders/:id/status', protect, async (req, res) => {
             }
         } catch (emailError) {
             console.error('Email sending failed:', emailError);
-            // Don't fail the request if email fails
         }
+
+        const notification = new Notification({
+            user: order.user,
+            orderId: order._id,
+            message: getStatusMessage(status, order._id),
+            status
+        });
+        await notification.save();
 
         res.json(order);
     } catch (error) {
@@ -840,26 +639,28 @@ app.put('/api/orders/:id/status', protect, async (req, res) => {
     }
 });
 
-// Track order location
+function getStatusMessage(status, orderId) {
+    const messages = {
+        'confirmed': `✅ Order #${orderId.toString().slice(-8)} has been confirmed!`,
+        'preparing': `👨‍🍳 Your order #${orderId.toString().slice(-8)} is being prepared!`,
+        'out-for-delivery': `🚚 Your order #${orderId.toString().slice(-8)} is out for delivery!`,
+        'delivered': `🎉 Your order #${orderId.toString().slice(-8)} has been delivered!`
+    };
+    return messages[status] || `Order #${orderId.toString().slice(-8)} status updated to ${status}`;
+}
+
 app.get('/api/orders/:orderId/track', protect, async (req, res) => {
     try {
         const { orderId } = req.params;
         const order = await Order.findById(orderId);
-
-        if (!order) {
-            return res.status(404).json({ message: 'Order not found' });
-        }
+        if (!order) return res.status(404).json({ message: 'Order not found' });
 
         if (order.user.toString() !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'delivery') {
             return res.status(403).json({ message: 'Unauthorized' });
         }
 
         const location = deliveryLocations.get(orderId);
-        if (location) {
-            res.json(location);
-        } else {
-            res.json({ message: 'Tracking not available yet', status: order.status });
-        }
+        res.json(location || { message: 'Tracking not available yet', status: order.status });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -868,15 +669,8 @@ app.get('/api/orders/:orderId/track', protect, async (req, res) => {
 app.post('/api/delivery/update-location', protect, deliveryOnly, async (req, res) => {
     try {
         const { orderId, lat, lng } = req.body;
-
-        deliveryLocations.set(orderId, {
-            lat,
-            lng,
-            updatedAt: new Date(),
-            deliveryPartner: req.user.id
-        });
-
-        res.json({ success: true, message: 'Location updated' });
+        deliveryLocations.set(orderId, { lat, lng, updatedAt: new Date(), deliveryPartner: req.user.id });
+        res.json({ success: true });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -887,10 +681,7 @@ app.get('/api/delivery/all-orders', protect, deliveryOnly, async (req, res) => {
     try {
         const orders = await Order.find({
             status: { $in: ['confirmed', 'preparing'] },
-            $or: [
-                { deliveryPartner: { $exists: false } },
-                { deliveryPartner: null }
-            ]
+            $or: [{ deliveryPartner: { $exists: false } }, { deliveryPartner: null }]
         }).populate('user', 'name phone address');
         res.json(orders);
     } catch (error) {
@@ -914,23 +705,16 @@ app.post('/api/delivery/accept-order', protect, deliveryOnly, async (req, res) =
     try {
         const { orderId } = req.body;
         const order = await Order.findById(orderId);
-
-        if (!order) {
-            return res.status(404).json({ message: 'Order not found' });
-        }
-
+        if (!order) return res.status(404).json({ message: 'Order not found' });
         if (order.status !== 'confirmed' && order.status !== 'preparing') {
             return res.status(400).json({ message: 'Order is not ready for pickup' });
         }
-
         if (order.deliveryPartner) {
             return res.status(400).json({ message: 'Order already assigned to another partner' });
         }
-
         order.status = 'out-for-delivery';
         order.deliveryPartner = req.user.id;
         await order.save();
-
         res.json({ success: true, message: 'Order accepted', order });
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -943,20 +727,10 @@ app.get('/api/delivery/earnings', protect, deliveryOnly, async (req, res) => {
             deliveryPartner: req.user.id,
             status: 'delivered'
         });
-
         const totalEarnings = deliveredOrders.length * 50;
-        const weekEarnings = deliveredOrders.filter(o => {
-            const weekAgo = new Date();
-            weekAgo.setDate(weekAgo.getDate() - 7);
-            return new Date(o.createdAt) > weekAgo;
-        }).length * 50;
-
         res.json({
-            today: deliveredOrders.filter(o => {
-                const today = new Date();
-                return new Date(o.createdAt).toDateString() === today.toDateString();
-            }).length * 50,
-            week: weekEarnings,
+            today: deliveredOrders.filter(o => new Date(o.createdAt).toDateString() === new Date().toDateString()).length * 50,
+            week: deliveredOrders.filter(o => new Date(o.createdAt) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)).length * 50,
             month: totalEarnings,
             total: totalEarnings
         });
@@ -969,19 +743,14 @@ app.get('/api/delivery/earnings', protect, deliveryOnly, async (req, res) => {
 app.get('/api/admin/users', protect, adminOnly, async (req, res) => {
     try {
         const users = await User.find({}).select('-password');
-
         const usersWithStats = await Promise.all(users.map(async (user) => {
             const orders = await Order.find({ user: user._id });
-            const totalOrders = orders.length;
-            const totalSpent = orders.reduce((sum, order) => sum + order.totalAmount, 0);
-
             return {
                 ...user.toObject(),
-                totalOrders,
-                totalSpent
+                totalOrders: orders.length,
+                totalSpent: orders.reduce((sum, order) => sum + order.totalAmount, 0)
             };
         }));
-
         res.json(usersWithStats);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -992,11 +761,7 @@ app.put('/api/admin/users/:id/role', protect, adminOnly, async (req, res) => {
     try {
         const { role } = req.body;
         const user = await User.findById(req.params.id);
-
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
+        if (!user) return res.status(404).json({ message: 'User not found' });
         user.role = role;
         await user.save();
         res.json({ message: 'User role updated', user });
@@ -1010,12 +775,8 @@ app.get('/api/admin/stats', protect, adminOnly, async (req, res) => {
         const totalUsers = await User.countDocuments();
         const totalOrders = await Order.countDocuments();
         const totalProducts = await Product.countDocuments();
-        const revenueResult = await Order.aggregate([
-            { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-        ]);
-        const totalRevenue = revenueResult[0]?.total || 0;
-
-        res.json({ totalUsers, totalOrders, totalProducts, totalRevenue });
+        const revenueResult = await Order.aggregate([{ $group: { _id: null, total: { $sum: '$totalAmount' } } }]);
+        res.json({ totalUsers, totalOrders, totalProducts, totalRevenue: revenueResult[0]?.total || 0 });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -1064,12 +825,9 @@ app.post('/api/wishlist', protect, async (req, res) => {
     try {
         const { productId } = req.body;
         const existing = await Wishlist.findOne({ user: req.user.id, productId });
-        if (existing) {
-            return res.status(400).json({ message: 'Item already in wishlist' });
-        }
+        if (existing) return res.status(400).json({ message: 'Item already in wishlist' });
         const wishlistItem = new Wishlist({ user: req.user.id, productId });
         await wishlistItem.save();
-
         const wishlist = await Wishlist.find({ user: req.user.id }).populate('productId');
         const formattedWishlist = wishlist.map(item => ({
             _id: item._id,
