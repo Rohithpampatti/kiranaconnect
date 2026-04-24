@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { toast } from 'react-toastify';
-import { Wallet, QrCode, CreditCard } from 'lucide-react';
+import { Wallet, QrCode } from 'lucide-react';
 
 const Checkout = () => {
   const [cartItems, setCartItems] = useState([]);
@@ -26,12 +26,12 @@ const Checkout = () => {
     setSubtotal(sum);
     setTotal(sum + 40);
     
-    // Get user address
     if (user?.address) {
       setAddress(user.address);
     }
   }, []);
 
+  // Handle COD Order
   const handleCODOrder = async () => {
     setLoading(true);
     try {
@@ -65,6 +65,7 @@ const Checkout = () => {
     }
   };
 
+  // Handle QR Payment - Navigate to QR page
   const handleQRPayment = () => {
     // Save order data to localStorage for QR payment page
     const pendingOrder = {
@@ -76,10 +77,11 @@ const Checkout = () => {
       timestamp: Date.now()
     };
     localStorage.setItem('pendingOrder', JSON.stringify(pendingOrder));
-    // Navigate to QR payment page
+    // Navigate to QR payment page (NOT place order directly)
     navigate('/payment-qr');
   };
 
+  // Main handler
   const handlePlaceOrder = () => {
     if (paymentMethod === 'QR') {
       handleQRPayment();
@@ -116,11 +118,9 @@ const Checkout = () => {
                 {cartItems.map((item) => (
                   <div key={item.id} className="flex justify-between items-center py-3 border-b last:border-0">
                     <div className="flex items-center gap-3">
-                      <img 
-                        src={item.image || `https://placehold.co/60x60/22c55e/white?text=${item.name.charAt(0)}`} 
-                        alt={item.name}
-                        className="w-12 h-12 rounded-lg object-cover"
-                      />
+                      <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center">
+                        <span className="text-lg">🛒</span>
+                      </div>
                       <div>
                         <p className="font-medium">{item.name}</p>
                         <p className="text-sm text-gray-500">Quantity: {item.quantity} × ₹{item.price}</p>
@@ -185,7 +185,7 @@ const Checkout = () => {
 
               {/* Payment Method */}
               <div className="mt-6">
-                <h3 className="font-semibold mb-3">Payment Method</h3>
+                <h3 className="font-semibold mb-3">Select Payment Method</h3>
                 <div className="space-y-3">
                   <label className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
                     <input

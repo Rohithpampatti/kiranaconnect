@@ -23,11 +23,12 @@ const PaymentQR = () => {
   useEffect(() => {
     // Try to get pending order from checkout first
     const pendingOrder = JSON.parse(localStorage.getItem('pendingOrder') || '{}');
+    console.log('Pending order found:', pendingOrder);
     
     if (pendingOrder.items && pendingOrder.items.length > 0) {
       setCartItems(pendingOrder.items);
       setTotal(pendingOrder.total);
-      console.log('Loaded from pendingOrder:', pendingOrder);
+      console.log('Loaded from pendingOrder - Total:', pendingOrder.total);
       // Clear pending order to avoid reuse
       localStorage.removeItem('pendingOrder');
     } else {
@@ -42,6 +43,7 @@ const PaymentQR = () => {
       const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
       const deliveryFee = 40;
       setTotal(subtotal + deliveryFee);
+      console.log('Loaded from cart - Total:', subtotal + deliveryFee);
     }
     
     // Generate order ID
@@ -56,6 +58,8 @@ const PaymentQR = () => {
   const generateUPIUrl = () => {
     const amount = total;
     const upiUrl = `upi://pay?pa=${UPI_ID}&pn=${encodeURIComponent(UPI_NAME)}&am=${amount}&cu=INR&tn=${encodeURIComponent(`${UPI_NOTE} - ${orderId}`)}`;
+    console.log('Generated UPI URL:', upiUrl);
+    console.log('Amount in QR:', amount);
     return upiUrl;
   };
 
