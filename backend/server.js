@@ -739,7 +739,7 @@ app.delete('/api/products/:id', protect, adminOnly, async (req, res) => {
     }
 });
 
-// ============= ORDER ROUTES (FIXED) =============
+// ============= SIMPLIFIED ORDER ROUTES (FIXED - NO EMAIL DEPENDENCY) =============
 app.post('/api/orders', protect, async (req, res) => {
     try {
         const { items, subtotal, deliveryFee, discount, totalAmount, deliveryAddress, deliveryDate, deliveryTimeSlot, paymentMethod, couponApplied, customerLocation } = req.body;
@@ -760,12 +760,6 @@ app.post('/api/orders', protect, async (req, res) => {
         });
 
         await order.save();
-
-        const user = await User.findById(req.user.id);
-        if (user && user.email) {
-            await sendOrderConfirmationEmail(user, order._id, items, totalAmount, deliveryAddress, deliveryDate, deliveryTimeSlot);
-        }
-
         res.status(201).json(order);
     } catch (error) {
         console.error('Order creation error:', error);
@@ -773,22 +767,21 @@ app.post('/api/orders', protect, async (req, res) => {
     }
 });
 
-// FIXED: Get my orders - returns empty array instead of error
+// Get my orders - Returns empty array if no orders
 app.get('/api/orders/my-orders', protect, async (req, res) => {
     try {
-        const orders = await Order.find({ user: req.user.id }).sort('-createdAt');
+        const orders = await Order.find({ user: req.user.id }).sort({ createdAt: -1 });
         res.json(orders || []);
     } catch (error) {
         console.error('Fetch my orders error:', error);
-        // Return empty array instead of error to prevent frontend crash
         res.json([]);
     }
 });
 
-// FIXED: Admin get all orders
+// Admin get all orders
 app.get('/api/orders', protect, adminOnly, async (req, res) => {
     try {
-        const orders = await Order.find().populate('user', 'name email').sort('-createdAt');
+        const orders = await Order.find().populate('user', 'name email').sort({ createdAt: -1 });
         res.json(orders || []);
     } catch (error) {
         console.error('Admin fetch orders error:', error);
@@ -796,10 +789,11 @@ app.get('/api/orders', protect, adminOnly, async (req, res) => {
     }
 });
 
+// Update order status
 app.put('/api/orders/:id/status', protect, async (req, res) => {
     try {
         const { status } = req.body;
-        const order = await Order.findById(req.params.id).populate('user');
+        const order = await Order.findById(req.params.id);
 
         if (!order) return res.status(404).json({ message: 'Order not found' });
 
@@ -825,21 +819,19 @@ app.put('/api/orders/:id/status', protect, async (req, res) => {
 
         await order.save();
 
-        if (order.user && order.user.email) {
-            if (status === 'delivered') {
-                await sendOrderDeliveredEmail(order.user, order._id, order.totalAmount, new Date().toLocaleDateString());
-            } else if (status === 'confirmed' || status === 'preparing' || status === 'out-for-delivery') {
-                await sendOrderStatusEmail(order.user, order._id, status, order.totalAmount);
+        // Try to send email but don't fail if it doesn't work
+        try {
+            if (order.user && order.user.email) {
+                if (status === 'delivered') {
+                    await sendOrderDeliveredEmail(order.user, order._id, order.totalAmount, new Date().toLocaleDateString());
+                } else if (status === 'confirmed' || status === 'preparing' || status === 'out-for-delivery') {
+                    await sendOrderStatusEmail(order.user, order._id, status, order.totalAmount);
+                }
             }
+        } catch (emailError) {
+            console.error('Email sending failed:', emailError);
+            // Don't fail the request if email fails
         }
-
-        const notification = new Notification({
-            user: order.user,
-            orderId: order._id,
-            message: getStatusMessage(status, order._id),
-            status
-        });
-        await notification.save();
 
         res.json(order);
     } catch (error) {
@@ -848,16 +840,7 @@ app.put('/api/orders/:id/status', protect, async (req, res) => {
     }
 });
 
-function getStatusMessage(status, orderId) {
-    const messages = {
-        'confirmed': `✅ Order #${orderId.toString().slice(-8)} has been confirmed!`,
-        'preparing': `👨‍🍳 Your order #${orderId.toString().slice(-8)} is being prepared!`,
-        'out-for-delivery': `🚚 Your order #${orderId.toString().slice(-8)} is out for delivery!`,
-        'delivered': `🎉 Your order #${orderId.toString().slice(-8)} has been delivered! Enjoy!`
-    };
-    return messages[status] || `Order #${orderId.toString().slice(-8)} status updated to ${status}`;
-}
-
+// Track order location
 app.get('/api/orders/:orderId/track', protect, async (req, res) => {
     try {
         const { orderId } = req.params;
