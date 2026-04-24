@@ -4,55 +4,61 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { toast } from 'react-toastify';
-import { Copy, Check, ArrowLeft, Smartphone, Clock, QrCode } from 'lucide-react';
+import { Copy, Check, ArrowLeft, Smartphone, Clock } from 'lucide-react';
 
 const PaymentQR = () => {
   const [cartItems, setCartItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [orderId, setOrderId] = useState('');
   const [copied, setCopied] = useState(false);
-  const [paymentStatus, setPaymentStatus] = useState('pending');
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  // Your UPI ID (Replace with your actual UPI ID)
-  const UPI_ID = '9100720256-3@ybl'; // Change this to your UPI ID
-  const UPI_NAME = 'pampatti rohith';
+  // Your UPI ID (Update with your actual UPI ID)
+  const UPI_ID = '9100720256-3@ybl';
+  const UPI_NAME = 'KiranaConnect Store';
   const UPI_NOTE = 'Grocery Payment';
 
   useEffect(() => {
-    const cart = JSON.parse(localStorage.getItem('cart') || '[]');
-    if (cart.length === 0) {
-      navigate('/cart');
-      return;
-    }
-    setCartItems(cart);
+    // Try to get pending order from checkout first
+    const pendingOrder = JSON.parse(localStorage.getItem('pendingOrder') || '{}');
     
-    // Calculate total including delivery fee
-    const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    const deliveryFee = 40;
-    const totalAmount = subtotal + deliveryFee;
-    setTotal(totalAmount);
+    if (pendingOrder.items && pendingOrder.items.length > 0) {
+      setCartItems(pendingOrder.items);
+      setTotal(pendingOrder.total);
+      console.log('Loaded from pendingOrder:', pendingOrder);
+      // Clear pending order to avoid reuse
+      localStorage.removeItem('pendingOrder');
+    } else {
+      // Fallback to cart
+      const cart = JSON.parse(localStorage.getItem('cart') || '[]');
+      if (cart.length === 0) {
+        toast.error('No items in cart');
+        navigate('/cart');
+        return;
+      }
+      setCartItems(cart);
+      const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const deliveryFee = 40;
+      setTotal(subtotal + deliveryFee);
+    }
     
     // Generate order ID
-    const newOrderId = `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const newOrderId = `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
     setOrderId(newOrderId);
     
-    console.log('Payment QR - Total Amount:', totalAmount);
-    console.log('Payment QR - Order ID:', newOrderId);
+    console.log('PaymentQR - Total:', total);
+    console.log('PaymentQR - Order ID:', newOrderId);
   }, []);
 
   // Generate UPI Payment URL with dynamic amount
   const generateUPIUrl = () => {
     const amount = total;
     const upiUrl = `upi://pay?pa=${UPI_ID}&pn=${encodeURIComponent(UPI_NAME)}&am=${amount}&cu=INR&tn=${encodeURIComponent(`${UPI_NOTE} - ${orderId}`)}`;
-    console.log('Generated UPI URL:', upiUrl);
-    console.log('Amount in QR:', amount);
     return upiUrl;
   };
 
-  // Generate QR Code value
   const qrValue = generateUPIUrl();
 
   const copyUPIId = () => {
@@ -62,52 +68,50 @@ const PaymentQR = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const checkPaymentAndPlaceOrder = async () => {
-    setPaymentStatus('checking');
-    setLoading(true);
-    
-    // Show payment pending message
-    toast.info('Please complete payment in your UPI app');
-    
-    // For demo: Ask user to confirm payment
+  const confirmPaymentAndPlaceOrder = async () => {
     const confirmed = window.confirm(`Have you completed the payment of ₹${total}?`);
     
-    if (confirmed) {
-      try {
-        // Create order in database
-        const orderData = {
-          items: cartItems.map(item => ({
-            productId: item.id,
-            name: item.name,
-            quantity: item.quantity,
-            price: item.price
-          })),
-          subtotal: cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0),
-          deliveryFee: 40,
-          discount: 0,
-          totalAmount: total,
-          deliveryAddress: user?.address || 'Store Address',
-          paymentMethod: 'UPI QR',
-          orderId: orderId
-        };
-        
-        const response = await api.post('/orders', orderData);
-        if (response.data) {
-          localStorage.removeItem('cart');
-          window.dispatchEvent(new Event('cartUpdated'));
-          toast.success('Payment successful! Order placed successfully!');
-          navigate('/orders');
-        }
-      } catch (error) {
-        console.error('Order placement error:', error);
-        toast.error('Failed to place order. Please try again.');
-        setPaymentStatus('pending');
-      }
-    } else {
-      toast.warning('Please complete the payment first');
-      setPaymentStatus('pending');
+    if (!confirmed) {
+      toast.info('Please complete the payment first');
+      return;
     }
-    setLoading(false);
+    
+    setLoading(true);
+    
+    try {
+      // Calculate subtotal
+      const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      
+      const orderData = {
+        items: cartItems.map(item => ({
+          productId: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price
+        })),
+        subtotal: subtotal,
+        deliveryFee: 40,
+        discount: 0,
+        totalAmount: total,
+        deliveryAddress: user?.address || 'Store Address',
+        paymentMethod: 'UPI QR',
+        orderId: orderId
+      };
+      
+      const response = await api.post('/orders', orderData);
+      
+      if (response.data) {
+        localStorage.removeItem('cart');
+        window.dispatchEvent(new Event('cartUpdated'));
+        toast.success('✅ Payment successful! Order placed successfully!');
+        navigate('/orders');
+      }
+    } catch (error) {
+      console.error('Order placement error:', error);
+      toast.error('Failed to place order. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (cartItems.length === 0) {
@@ -115,7 +119,7 @@ const PaymentQR = () => {
       <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center">
         <div className="text-center bg-white rounded-2xl shadow-xl p-12">
           <p className="text-gray-500">No items in cart</p>
-          <button onClick={() => navigate('/')} className="mt-4 text-emerald-600">
+          <button onClick={() => navigate('/')} className="mt-4 text-emerald-600 hover:text-emerald-700">
             Continue Shopping
           </button>
         </div>
@@ -126,7 +130,10 @@ const PaymentQR = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 py-20">
       <div className="max-w-4xl mx-auto px-4">
-        <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-600 mb-6 hover:text-emerald-600">
+        <button 
+          onClick={() => navigate(-1)} 
+          className="flex items-center gap-2 text-gray-600 mb-6 hover:text-emerald-600 transition-colors"
+        >
           <ArrowLeft size={20} /> Back to Cart
         </button>
 
@@ -150,7 +157,7 @@ const PaymentQR = () => {
               <span>Delivery Fee</span>
               <span>₹40</span>
             </div>
-            <div className="flex justify-between py-2 font-bold text-lg mt-2">
+            <div className="flex justify-between py-2 font-bold text-lg mt-2 pt-2 border-t">
               <span>Total Amount</span>
               <span className="text-emerald-600 text-2xl">₹{total}</span>
             </div>
@@ -189,7 +196,10 @@ const PaymentQR = () => {
                 <span className="text-gray-600">UPI ID:</span>
                 <div className="flex items-center gap-2">
                   <code className="font-mono text-sm">{UPI_ID}</code>
-                  <button onClick={copyUPIId} className="text-emerald-600 hover:text-emerald-700">
+                  <button 
+                    onClick={copyUPIId} 
+                    className="text-emerald-600 hover:text-emerald-700 transition-colors"
+                  >
                     {copied ? <Check size={18} /> : <Copy size={18} />}
                   </button>
                 </div>
@@ -201,16 +211,16 @@ const PaymentQR = () => {
               </div>
 
               <button
-                onClick={checkPaymentAndPlaceOrder}
+                onClick={confirmPaymentAndPlaceOrder}
                 disabled={loading}
-                className="w-full bg-emerald-600 text-white py-3 rounded-xl hover:bg-emerald-700 transition-colors mt-4"
+                className="w-full bg-emerald-600 text-white py-3 rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50"
               >
-                {loading ? 'Processing...' : `I have Completed Payment of ₹${total}`}
+                {loading ? 'Processing...' : `✅ I have Completed Payment of ₹${total}`}
               </button>
 
-              <p className="text-xs text-gray-400 text-center mt-4">
+              <p className="text-xs text-gray-400 text-center">
                 <Clock size={12} className="inline mr-1" />
-                After scanning QR, complete payment in your UPI app then click above button
+                After scanning QR, complete payment then click above button
               </p>
             </div>
           </div>
@@ -218,17 +228,19 @@ const PaymentQR = () => {
 
         {/* Instructions */}
         <div className="bg-white rounded-2xl shadow-md p-6 mt-8">
-          <h3 className="font-semibold mb-3">How to Pay:</h3>
+          <h3 className="font-semibold mb-3">📖 How to Pay:</h3>
           <ol className="space-y-2 text-sm text-gray-600">
-            <li>1. Open any UPI app (Google Pay / PhonePe / Paytm)</li>
-            <li>2. Scan the QR code above</li>
-            <li>3. Amount <strong className="text-emerald-600">₹{total}</strong> will be auto-filled</li>
-            <li>4. Complete the payment</li>
-            <li>5. Click <strong>"I have Completed Payment"</strong> button</li>
+            <li>1️⃣ Open any UPI app (Google Pay / PhonePe / Paytm / Amazon Pay)</li>
+            <li>2️⃣ Scan the QR code above</li>
+            <li>3️⃣ Amount <strong className="text-emerald-600">₹{total}</strong> will be auto-filled</li>
+            <li>4️⃣ Complete the payment using your UPI PIN</li>
+            <li>5️⃣ Click <strong className="text-emerald-600">"I have Completed Payment"</strong> button</li>
+            <li>6️⃣ Your order will be confirmed automatically</li>
           </ol>
           <div className="mt-4 p-3 bg-yellow-50 rounded-lg">
             <p className="text-sm text-yellow-800">
-              ⚠️ Note: The QR code amount is set to ₹{total}. Please verify before paying.
+              ⚠️ <strong>Important:</strong> The QR code amount is set to ₹{total}. Please verify the amount before paying.
+              After payment, you must click the confirmation button to complete your order.
             </p>
           </div>
         </div>
